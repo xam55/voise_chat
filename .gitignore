@@ -1,0 +1,5 @@
+﻿/target/
+/dist/
+/apps/desktop/node_modules/
+*.log
+NexusChat-portable-*.zip

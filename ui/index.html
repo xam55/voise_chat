@@ -1,0 +1,142 @@
+﻿<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexusChat Desktop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app">
+    <aside class="rail">
+      <button class="rail-btn active">NX</button>
+      <button id="newGroupBtn" class="rail-btn">+</button>
+      <button id="openSettingsBtn" class="rail-btn">⚙</button>
+    </aside>
+
+    <section class="sidebar">
+      <header class="brand-row">
+        <h1>NexusChat</h1>
+        <button id="addFriendBtn" class="mini">+ Друг</button>
+      </header>
+
+      <label class="search-wrap">
+        <input id="searchInput" type="text" placeholder="Поиск по никнейму или ключу..." />
+      </label>
+
+      <div class="section-title">Друзья</div>
+      <ul id="friendList" class="list"></ul>
+
+      <div class="section-title">Группы</div>
+      <ul id="groupList" class="list"></ul>
+
+      <footer class="me">
+        <div class="avatar small" id="myAvatar">NX</div>
+        <div class="meta">
+          <strong id="myNick">Nexus User</strong>
+          <code id="myKey">NX-8A2B99</code>
+        </div>
+      </footer>
+    </section>
+
+    <section class="content">
+      <header class="topbar">
+        <div>
+          <h2 id="roomTitle">Выбери контакт</h2>
+          <p id="roomSubtitle">Готов к звонку</p>
+        </div>
+        <div class="top-actions">
+          <button id="connectBtn">Подключиться</button>
+          <button id="disconnectBtn" class="danger">Отключиться</button>
+        </div>
+      </header>
+
+      <div class="stage">
+        <div class="voice-card">
+          <div class="avatar big" id="activeAvatar">NX</div>
+          <h3 id="activeName">NexusChat</h3>
+          <p class="latency" id="latency">P2P • -- ms</p>
+          <p class="timer" id="timer">00:00</p>
+          <p class="status" id="status">Статус: ожидание</p>
+
+          <div class="controls">
+            <button id="micToggleBtn">Микрофон</button>
+            <button id="speakerToggleBtn">Звук</button>
+            <button id="pttBtn" class="primary">Нажми и говори</button>
+          </div>
+        </div>
+
+        <aside class="members">
+          <h4>Участники</h4>
+          <ul id="memberList"></ul>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div id="addFriendModal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Добавить друга</h3>
+      <label>Никнейм
+        <input id="friendNickInput" type="text" placeholder="Например, Alex" />
+      </label>
+      <label>Ключ
+        <input id="friendKeyInput" type="text" placeholder="NX-8A2B99" />
+      </label>
+      <div class="modal-actions">
+        <button id="saveFriendBtn" class="primary">Добавить</button>
+        <button data-close="addFriendModal">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="newGroupModal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Новая группа</h3>
+      <label>Название
+        <input id="groupNameInput" type="text" placeholder="Например, Squad" />
+      </label>
+      <label>Участники (через запятую)
+        <input id="groupMembersInput" type="text" placeholder="Alex, MaxO" />
+      </label>
+      <div class="modal-actions">
+        <button id="saveGroupBtn" class="primary">Создать</button>
+        <button data-close="newGroupModal">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Настройки</h3>
+      <label>Мой ник
+        <input id="myNickInput" type="text" placeholder="Nexus User" />
+      </label>
+      <label>Мой ключ
+        <input id="myKeyInput" type="text" placeholder="NX-XXXXXX" />
+      </label>
+      <label>Сигнальный сервер
+        <input id="signalServerInput" type="text" placeholder="http://127.0.0.1:8080" />
+      </label>
+      <label>Микрофон
+        <select id="micDeviceSelect"></select>
+      </label>
+      <label class="inline">
+        <input id="pttModeInput" type="checkbox" />
+        Push-to-talk режим
+      </label>
+      <div class="modal-actions">
+        <button id="saveSettingsBtn" class="primary">Сохранить</button>
+        <button data-close="settingsModal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

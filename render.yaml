@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: nexuschat-signal-server
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: SIGNAL_API_TOKEN
+        sync: false
