@@ -3,11 +3,12 @@ use std::{
   io::Write,
   path::PathBuf,
   sync::{Arc, Mutex},
+  time::{Duration, Instant},
 };
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GithubAsset {
@@ -48,6 +49,151 @@ struct UpdateProgress {
 
 #[derive(Clone)]
 struct UpdaterShared(Arc<Mutex<UpdateProgress>>);
+
+#[derive(Debug, Default)]
+struct GlobalPttState {
+  vk_code: Option<i32>,
+}
+
+#[derive(Clone)]
+struct GlobalPttShared(Arc<Mutex<GlobalPttState>>);
+
+#[derive(Debug, Clone, Serialize)]
+struct GlobalPttEvent {
+  down: bool,
+}
+
+#[cfg(target_os = "windows")]
+fn parse_ptt_binding_to_vk(binding: &str) -> Option<i32> {
+  let value = binding.trim();
+  if value.is_empty() {
+    return None;
+  }
+
+  if let Some(mouse) = value.strip_prefix("Mouse") {
+    return match mouse.parse::<i32>().ok()? {
+      0 => Some(0x01), // VK_LBUTTON
+      1 => Some(0x04), // VK_MBUTTON
+      2 => Some(0x02), // VK_RBUTTON
+      3 => Some(0x05), // VK_XBUTTON1 (Mouse Back)
+      4 => Some(0x06), // VK_XBUTTON2 (Mouse Forward)
+      _ => None,
+    };
+  }
+
+  if let Some(letter) = value.strip_prefix("Key") {
+    if letter.len() == 1 {
+      let ch = letter.chars().next()?.to_ascii_uppercase();
+      if ch.is_ascii_alphabetic() {
+        return Some(ch as i32);
+      }
+    }
+  }
+
+  if let Some(digit) = value.strip_prefix("Digit") {
+    if digit.len() == 1 {
+      let ch = digit.chars().next()?;
+      if ch.is_ascii_digit() {
+        return Some(ch as i32);
+      }
+    }
+  }
+
+  if let Some(raw_fn) = value.strip_prefix('F') {
+    if let Ok(n) = raw_fn.parse::<i32>() {
+      if (1..=24).contains(&n) {
+        return Some(0x70 + (n - 1)); // VK_F1..VK_F24
+      }
+    }
+  }
+
+  match value {
+    "Space" => Some(0x20),       // VK_SPACE
+    "Enter" => Some(0x0D),       // VK_RETURN
+    "Escape" => Some(0x1B),      // VK_ESCAPE
+    "Backspace" => Some(0x08),   // VK_BACK
+    "Tab" => Some(0x09),         // VK_TAB
+    "ShiftLeft" => Some(0xA0),   // VK_LSHIFT
+    "ShiftRight" => Some(0xA1),  // VK_RSHIFT
+    "ControlLeft" => Some(0xA2), // VK_LCONTROL
+    "ControlRight" => Some(0xA3), // VK_RCONTROL
+    "AltLeft" => Some(0xA4),     // VK_LMENU
+    "AltRight" => Some(0xA5),    // VK_RMENU
+    "CapsLock" => Some(0x14),    // VK_CAPITAL
+    "ArrowUp" => Some(0x26),     // VK_UP
+    "ArrowDown" => Some(0x28),   // VK_DOWN
+    "ArrowLeft" => Some(0x25),   // VK_LEFT
+    "ArrowRight" => Some(0x27),  // VK_RIGHT
+    "Insert" => Some(0x2D),      // VK_INSERT
+    "Delete" => Some(0x2E),      // VK_DELETE
+    "Home" => Some(0x24),        // VK_HOME
+    "End" => Some(0x23),         // VK_END
+    "PageUp" => Some(0x21),      // VK_PRIOR
+    "PageDown" => Some(0x22),    // VK_NEXT
+    "Numpad0" => Some(0x60),
+    "Numpad1" => Some(0x61),
+    "Numpad2" => Some(0x62),
+    "Numpad3" => Some(0x63),
+    "Numpad4" => Some(0x64),
+    "Numpad5" => Some(0x65),
+    "Numpad6" => Some(0x66),
+    "Numpad7" => Some(0x67),
+    "Numpad8" => Some(0x68),
+    "Numpad9" => Some(0x69),
+    "NumpadMultiply" => Some(0x6A),
+    "NumpadAdd" => Some(0x6B),
+    "NumpadSubtract" => Some(0x6D),
+    "NumpadDecimal" => Some(0x6E),
+    "NumpadDivide" => Some(0x6F),
+    _ => None,
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn parse_ptt_binding_to_vk(_binding: &str) -> Option<i32> {
+  None
+}
+
+#[cfg(target_os = "windows")]
+fn is_vk_pressed(vk_code: i32) -> bool {
+  // SAFETY: GetAsyncKeyState is a pure OS query that does not require additional invariants.
+  unsafe {
+    (windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk_code) as u16 & 0x8000)
+      != 0
+  }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn is_vk_pressed(_vk_code: i32) -> bool {
+  false
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_global_ptt_worker(app: AppHandle, shared: Arc<Mutex<GlobalPttState>>) {
+  std::thread::spawn(move || {
+    let mut last_pressed = false;
+    let mut last_held_emit_at = Instant::now();
+    loop {
+      let current_vk = shared.lock().ok().and_then(|state| state.vk_code);
+      let pressed = current_vk.map(is_vk_pressed).unwrap_or(false);
+      if pressed != last_pressed {
+        let _ = app.emit("ptt-global", GlobalPttEvent { down: pressed });
+        if pressed {
+          last_held_emit_at = Instant::now();
+        }
+        last_pressed = pressed;
+      } else if pressed && last_held_emit_at.elapsed() >= Duration::from_millis(250) {
+        // Keep-alive "down" helps when foreground apps swallow input transitions.
+        let _ = app.emit("ptt-global", GlobalPttEvent { down: true });
+        last_held_emit_at = Instant::now();
+      }
+      std::thread::sleep(Duration::from_millis(2));
+    }
+  });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn spawn_global_ptt_worker(_app: AppHandle, _shared: Arc<Mutex<GlobalPttState>>) {}
 
 fn version_to_vec(raw: &str) -> Vec<u64> {
   raw
@@ -251,17 +397,32 @@ fn install_downloaded_update(app: AppHandle, state: State<'_, UpdaterShared>) ->
   Ok(())
 }
 
+#[tauri::command]
+fn set_global_ptt_binding(state: State<'_, GlobalPttShared>, binding: String) -> Result<(), String> {
+  let vk_code = parse_ptt_binding_to_vk(&binding);
+  let mut guard = state
+    .0
+    .lock()
+    .map_err(|_| "ptt_state_lock".to_string())?;
+  guard.vk_code = vk_code;
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .manage(UpdaterShared(Arc::new(Mutex::new(UpdateProgress::default()))))
+    .manage(GlobalPttShared(Arc::new(Mutex::new(GlobalPttState::default()))))
     .invoke_handler(tauri::generate_handler![
       check_update,
       start_update_download,
       get_update_progress,
-      install_downloaded_update
+      install_downloaded_update,
+      set_global_ptt_binding
     ])
     .setup(|app| {
+      let global_ptt = app.state::<GlobalPttShared>().0.clone();
+      spawn_global_ptt_worker(app.handle().clone(), global_ptt);
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()

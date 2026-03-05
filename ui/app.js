@@ -85,6 +85,9 @@ const updateLaterBtn = document.getElementById('updateLaterBtn');
 const myNickInput = document.getElementById('myNickInput');
 const myCodeInput = document.getElementById('myCodeInput');
 const signalServerInput = document.getElementById('signalServerInput');
+const turnServerInput = document.getElementById('turnServerInput');
+const turnUserInput = document.getElementById('turnUserInput');
+const turnPassInput = document.getElementById('turnPassInput');
 const inputDeviceSelect = document.getElementById('inputDeviceSelect');
 const outputDeviceSelect = document.getElementById('outputDeviceSelect');
 const voiceModeSelect = document.getElementById('voiceModeSelect');
@@ -103,7 +106,7 @@ const NET_TUNE = {
   incomingPollMs: 700,
   answerPollMs: 350,
   groupLinkPollMs: 900,
-  chatPollMs: 850,
+  chatPollMs: 350,
   iceGatherTimeoutMs: 2500,
   fetchTimeoutMs: 5000,
   fetchRetry: 1,
@@ -111,6 +114,11 @@ const NET_TUNE = {
   onlinePollMs: 7000,
   groupSyncMs: 3000,
 };
+
+const DEFAULT_SIGNAL_SERVER = 'http://5.129.239.69:8080';
+const DEFAULT_TURN_SERVER = 'turn:5.129.239.69:3478?transport=udp';
+const DEFAULT_TURN_USER = 'nizam';
+const DEFAULT_TURN_PASS = 'nizam#26!';
 
 const bootstrapCode = localStorage.getItem('nx_me_code') || createUniqueCode();
 const bootstrapFriends = sanitizeFriends(safeJson('nx_friends') || []);
@@ -123,7 +131,10 @@ const state = {
   me: {
     nick: localStorage.getItem('nx_me_nick') || 'nizamvoice user',
     code: bootstrapCode,
-    server: localStorage.getItem('nx_signal_server') || 'http://127.0.0.1:8080',
+    server: localStorage.getItem('nx_signal_server') || DEFAULT_SIGNAL_SERVER,
+    turnServer: localStorage.getItem('nx_turn_server') || DEFAULT_TURN_SERVER,
+    turnUser: localStorage.getItem('nx_turn_user') || DEFAULT_TURN_USER,
+    turnPass: localStorage.getItem('nx_turn_pass') || DEFAULT_TURN_PASS,
   },
   friends: bootstrapFriends,
   servers: normalizeServers(bootstrapServers, bootstrapCode, bootstrapFriends),
@@ -155,6 +166,7 @@ const state = {
   serverMenuServerId: '',
   chatPollRef: null,
   activeChatChannelId: '',
+  chatSyncBusyChannel: '',
   presenceTimerRef: null,
   onlineTimerRef: null,
   groupSyncRef: null,
@@ -168,6 +180,7 @@ const state = {
   updatePollRef: null,
   updateBusy: false,
   splashHidden: false,
+  globalPttUnlisten: null,
 };
 
 localStorage.setItem('nx_me_code', state.me.code);
@@ -177,16 +190,30 @@ persist('nx_text_messages', state.textMessages);
 persist('nx_chat_seen', state.chatSeenTs);
 persist('nx_friend_volumes', state.friendVolumes);
 
+if (!localStorage.getItem('nx_signal_server') || /127\.0\.0\.1|localhost/i.test(localStorage.getItem('nx_signal_server') || '')) {
+  localStorage.setItem('nx_signal_server', DEFAULT_SIGNAL_SERVER);
+  state.me.server = DEFAULT_SIGNAL_SERVER;
+}
+localStorage.setItem('nx_turn_server', DEFAULT_TURN_SERVER);
+state.me.turnServer = DEFAULT_TURN_SERVER;
+localStorage.setItem('nx_turn_user', DEFAULT_TURN_USER);
+state.me.turnUser = DEFAULT_TURN_USER;
+localStorage.setItem('nx_turn_pass', DEFAULT_TURN_PASS);
+state.me.turnPass = DEFAULT_TURN_PASS;
+
 init();
 
 function init() {
   bindEvents();
+  void initGlobalPttBridge();
   renderProfile();
   renderServers();
   renderHome();
   bindTextCallMirror();
   syncTextCallInfo();
   loadSettingsFields();
+  void syncGlobalPttBinding();
+  lockManagedTurnFields();
   renderVoiceModeHint();
   initDevices();
   startPresenceLoops();
@@ -195,6 +222,15 @@ function init() {
   startIncomingWatcher();
   void checkForAppUpdate();
   queueSplashHide();
+}
+
+function lockManagedTurnFields() {
+  const serverRow = turnServerInput?.closest('label');
+  const userRow = turnUserInput?.closest('label');
+  const passRow = turnPassInput?.closest('label');
+  if (serverRow) serverRow.classList.add('hidden');
+  if (userRow) userRow.classList.add('hidden');
+  if (passRow) passRow.classList.add('hidden');
 }
 
 function queueSplashHide() {
@@ -287,6 +323,16 @@ function bindEvents() {
     }
   });
 
+  window.addEventListener('focus', () => {
+    if (!state.activeChatChannelId) return;
+    void syncTextChannelFromServer(state.activeChatChannelId, true);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!state.activeChatChannelId) return;
+    void syncTextChannelFromServer(state.activeChatChannelId, true);
+  });
+
   document.querySelectorAll('[data-close]').forEach((btn) => {
     btn.onclick = () => document.getElementById(btn.dataset.close).classList.add('hidden');
   });
@@ -314,32 +360,19 @@ function onGlobalKeyDown(event) {
     state.pttKey = event.code || event.key;
     pttKeyInput.value = humanInputKey(state.pttKey);
     showToast(`Клавиша PTT: ${humanInputKey(state.pttKey)}`);
+    void syncGlobalPttBinding();
     return;
   }
 
   if (state.pttKey?.startsWith('Mouse')) return;
-  if (!state.callConnected || state.voiceMode !== 'ptt' || !state.micStream) return;
   if ((event.code || event.key) !== state.pttKey) return;
-
-  if (!state.pttHeld) {
-    state.pttHeld = true;
-    const track = state.micStream.getAudioTracks()[0];
-    if (track) track.enabled = true;
-    statusEl.textContent = `Статус: говоришь (${humanInputKey(state.pttKey)})`;
-    playCue('pttDown');
-  }
+  pressToTalkStart();
 }
 
 function onGlobalKeyUp(event) {
   if (state.pttKey?.startsWith('Mouse')) return;
-  if (!state.callConnected || state.voiceMode !== 'ptt' || !state.micStream) return;
   if ((event.code || event.key) !== state.pttKey) return;
-
-  state.pttHeld = false;
-  const track = state.micStream.getAudioTracks()[0];
-  if (track) track.enabled = false;
-  statusEl.textContent = getConnectedStatusText();
-  playCue('pttUp');
+  pressToTalkStop();
 }
 
 function onGlobalMouseDown(event) {
@@ -349,28 +382,61 @@ function onGlobalMouseDown(event) {
     state.pttKey = `Mouse${event.button}`;
     pttKeyInput.value = humanInputKey(state.pttKey);
     showToast(`Кнопка PTT: ${humanInputKey(state.pttKey)}`);
+    void syncGlobalPttBinding();
     return;
   }
 
-  if (!state.callConnected || state.voiceMode !== 'ptt' || !state.micStream) return;
   if (state.pttKey !== `Mouse${event.button}`) return;
-  if (!state.pttHeld) {
-    state.pttHeld = true;
-    const track = state.micStream.getAudioTracks()[0];
-    if (track) track.enabled = true;
-    statusEl.textContent = `Статус: говоришь (${humanInputKey(state.pttKey)})`;
-    playCue('pttDown');
-  }
+  pressToTalkStart();
 }
 
 function onGlobalMouseUp(event) {
-  if (!state.callConnected || state.voiceMode !== 'ptt' || !state.micStream) return;
   if (state.pttKey !== `Mouse${event.button}`) return;
+  pressToTalkStop();
+}
+
+function pressToTalkStart() {
+  if (!state.callConnected || state.voiceMode !== 'ptt' || !state.micStream) return;
+  if (state.pttHeld) return;
+  state.pttHeld = true;
+  const track = state.micStream.getAudioTracks()[0];
+  if (track) track.enabled = true;
+  statusEl.textContent = `Статус: говоришь (${humanInputKey(state.pttKey)})`;
+  playCue('pttDown');
+}
+
+function pressToTalkStop() {
+  if (!state.pttHeld) return;
   state.pttHeld = false;
   const track = state.micStream.getAudioTracks()[0];
   if (track) track.enabled = false;
   statusEl.textContent = getConnectedStatusText();
   playCue('pttUp');
+}
+
+async function initGlobalPttBridge() {
+  if (!hasTauriEventListen()) return;
+  if (state.globalPttUnlisten) return;
+  try {
+    state.globalPttUnlisten = await window.__TAURI__.event.listen('ptt-global', (event) => {
+      if (event?.payload?.down) {
+        pressToTalkStart();
+      } else {
+        pressToTalkStop();
+      }
+    });
+  } catch (_) {
+    // no-op outside desktop runtime
+  }
+}
+
+async function syncGlobalPttBinding() {
+  if (!hasTauriInvoke()) return;
+  try {
+    await tauriInvoke('set_global_ptt_binding', { binding: state.pttKey || 'Space' });
+  } catch (_) {
+    // no-op outside desktop runtime
+  }
 }
 
 function getConnectedStatusText() {
@@ -973,9 +1039,12 @@ function stopTextChannelPolling() {
   if (state.chatPollRef) clearInterval(state.chatPollRef);
   state.chatPollRef = null;
   state.activeChatChannelId = '';
+  state.chatSyncBusyChannel = '';
 }
 
 async function syncTextChannelFromServer(channelId, silent = false) {
+  if (state.chatSyncBusyChannel === channelId) return;
+  state.chatSyncBusyChannel = channelId;
   try {
     const prevList = Array.isArray(state.textMessages[channelId]) ? state.textMessages[channelId] : [];
     const prevLastId = prevList.length ? String(prevList[prevList.length - 1].id || '') : '';
@@ -1001,6 +1070,10 @@ async function syncTextChannelFromServer(channelId, silent = false) {
       } else {
         showToast('Ошибка загрузки сообщений');
       }
+    }
+  } finally {
+    if (state.chatSyncBusyChannel === channelId) {
+      state.chatSyncBusyChannel = '';
     }
   }
 }
@@ -1186,6 +1259,9 @@ function loadSettingsFields() {
   myNickInput.value = state.me.nick;
   myCodeInput.value = state.me.code;
   signalServerInput.value = state.me.server;
+  if (turnServerInput) turnServerInput.value = DEFAULT_TURN_SERVER;
+  if (turnUserInput) turnUserInput.value = DEFAULT_TURN_USER;
+  if (turnPassInput) turnPassInput.value = '';
   voiceModeSelect.value = state.voiceMode;
   pttKeyInput.value = humanInputKey(state.pttKey);
   pttKeyRow.classList.toggle('hidden', state.voiceMode !== 'ptt');
@@ -1194,6 +1270,9 @@ function loadSettingsFields() {
 function onSaveSettings() {
   const nick = myNickInput.value.trim();
   const server = signalServerInput.value.trim();
+  const turnServer = DEFAULT_TURN_SERVER;
+  const turnUser = DEFAULT_TURN_USER;
+  const turnPass = DEFAULT_TURN_PASS;
   if (!nick || !server) {
     showToast('Заполни ник и сервер');
     return;
@@ -1201,10 +1280,16 @@ function onSaveSettings() {
 
   state.me.nick = nick;
   state.me.server = server;
+  state.me.turnServer = turnServer;
+  state.me.turnUser = turnUser;
+  state.me.turnPass = turnPass;
   state.voiceMode = voiceModeSelect.value;
 
   localStorage.setItem('nx_me_nick', nick);
   localStorage.setItem('nx_signal_server', server);
+  localStorage.setItem('nx_turn_server', turnServer);
+  localStorage.setItem('nx_turn_user', turnUser);
+  localStorage.setItem('nx_turn_pass', turnPass);
   localStorage.setItem('nx_voice_mode', state.voiceMode);
   localStorage.setItem('nx_ptt_key', state.pttKey);
 
@@ -1213,6 +1298,7 @@ function onSaveSettings() {
 
   renderProfile();
   renderVoiceModeHint();
+  void syncGlobalPttBinding();
   modalSettings.classList.add('hidden');
   applyMicState();
   startPresenceLoops();
@@ -1293,6 +1379,7 @@ async function connectCall() {
     }
 
     await createOutgoingSession(friendCode, token);
+    await waitForPeerConnected(state.call?.pc, token, 14000);
 
     if (!isActiveToken(token)) return;
     stopRingingLoop();
@@ -1387,10 +1474,69 @@ async function teardownCall(notifyRemote = false) {
   }
 }
 
-function createPeer(friendCode, token) {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+function buildIceServers() {
+  const servers = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+  ];
+
+  const turnRaw = String(state.me.turnServer || '').trim();
+  if (!turnRaw) return servers;
+
+  const turnUrls = turnRaw.split(',').map((v) => v.trim()).filter(Boolean);
+  if (!turnUrls.length) return servers;
+
+  const turn = {
+    urls: turnUrls.length === 1 ? turnUrls[0] : turnUrls,
+  };
+  if (state.me.turnUser) turn.username = state.me.turnUser;
+  if (state.me.turnPass) turn.credential = state.me.turnPass;
+  servers.push(turn);
+  return servers;
+}
+
+function buildPeerConnectionConfig() {
+  return {
+    iceServers: buildIceServers(),
+    iceCandidatePoolSize: 8,
+  };
+}
+
+async function waitForPeerConnected(pc, token, timeoutMs = 12000) {
+  if (!pc) throw new Error('peer_not_initialized');
+  if (pc.connectionState === 'connected') return;
+
+  await new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (ok, err) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      pc.removeEventListener('connectionstatechange', onState);
+      if (ok) resolve();
+      else reject(err || new Error('peer_connect_timeout'));
+    };
+    const onState = () => {
+      if (!isActiveToken(token)) {
+        finish(false, new Error('call_token_expired'));
+        return;
+      }
+      if (pc.connectionState === 'connected') {
+        finish(true);
+        return;
+      }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+        finish(false, new Error(`peer_connection_${pc.connectionState}`));
+      }
+    };
+    const timer = setTimeout(() => finish(false, new Error('peer_connect_timeout')), timeoutMs);
+    pc.addEventListener('connectionstatechange', onState);
+    onState();
   });
+}
+
+function createPeer(friendCode, token) {
+  const pc = new RTCPeerConnection(buildPeerConnectionConfig());
 
   const remoteStream = new MediaStream();
   if (remoteAudio) {
@@ -1411,6 +1557,7 @@ function createPeer(friendCode, token) {
   pc.onconnectionstatechange = () => {
     if (!isActiveToken(token)) return;
     if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+      showToast('P2P не установлено. Проверь TURN в настройках.');
       disconnectCall();
     }
   };
@@ -1434,9 +1581,7 @@ function ensureGroupAudioElement(friendCode) {
 }
 
 function createGroupPeer(friendCode, token) {
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  });
+  const pc = new RTCPeerConnection(buildPeerConnectionConfig());
 
   const remoteStream = new MediaStream();
   const audioEl = ensureGroupAudioElement(friendCode);
@@ -1775,6 +1920,7 @@ async function acceptIncomingCall() {
       throw new Error('Микрофон недоступен');
     }
     await acceptIncomingSession(incoming.fromCode, incoming.sessionId, token);
+    await waitForPeerConnected(state.call?.pc, token, 14000);
     if (!isActiveToken(token)) return;
     state.callConnected = true;
     state.groupVoice = null;
@@ -2014,7 +2160,9 @@ async function waitIceComplete(pc, token, timeoutMs = NET_TUNE.iceGatherTimeoutM
 }
 
 async function signalGet(path) {
-  return signalRequest(path, { method: 'GET', headers: { Accept: 'application/json' } });
+  const sep = path.includes('?') ? '&' : '?';
+  const noCachePath = `${path}${sep}_=${Date.now()}`;
+  return signalRequest(noCachePath, { method: 'GET', headers: { Accept: 'application/json' } });
 }
 
 async function signalPost(path, payload) {
@@ -2057,7 +2205,11 @@ async function fetchWithTimeout(url, init, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, {
+      ...init,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
   } catch (err) {
     if (err?.name === 'AbortError') throw new Error('timeout');
     throw err;
@@ -2365,6 +2517,13 @@ function hasTauriInvoke() {
     && typeof window.__TAURI__ !== 'undefined'
     && typeof window.__TAURI__.core !== 'undefined'
     && typeof window.__TAURI__.core.invoke === 'function';
+}
+
+function hasTauriEventListen() {
+  return typeof window !== 'undefined'
+    && typeof window.__TAURI__ !== 'undefined'
+    && typeof window.__TAURI__.event !== 'undefined'
+    && typeof window.__TAURI__.event.listen === 'function';
 }
 
 async function tauriInvoke(command, args = {}) {
@@ -2841,4 +3000,5 @@ function escapeHtml(text) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
+
 

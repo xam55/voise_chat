@@ -19,6 +19,7 @@ body {
   font-family: "Manrope", sans-serif;
   color: var(--text);
   background: linear-gradient(130deg, #07080a, #0e1116 50%, #111728);
+  overflow: hidden;
 }
 body.launching {
   overflow: hidden;
@@ -111,7 +112,8 @@ body.launching {
 .app {
   display: grid;
   grid-template-columns: 74px 320px 1fr;
-  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .servers {
@@ -153,6 +155,8 @@ body.launching {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
 }
 .channels-header {
   display: flex;
@@ -339,6 +343,8 @@ body.launching {
   display: flex;
   flex-direction: column;
   background: #1b1e24;
+  min-height: 0;
+  overflow: hidden;
 }
 .main-header {
   border-bottom: 1px solid var(--line);
@@ -363,6 +369,8 @@ body.launching {
   display: grid;
   grid-template-columns: minmax(520px, 1fr) 310px;
   gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .call-panel,
@@ -370,6 +378,7 @@ body.launching {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #14171d;
+  min-height: 0;
 }
 .call-panel {
   position: relative;
@@ -393,6 +402,7 @@ body.launching {
   gap: 12px;
   text-align: left;
   padding: 12px;
+  min-height: 0;
 }
 .text-call-strip {
   display: grid;
@@ -464,6 +474,7 @@ body.launching {
   display: grid;
   gap: 8px;
   align-content: start;
+  min-height: 0;
 }
 .chat-empty {
   color: var(--muted);
@@ -538,6 +549,9 @@ body.launching {
 
 .right-panel {
   padding: 12px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
 }
 .right-head {
   display: flex;
@@ -559,6 +573,9 @@ body.launching {
   padding: 0;
   display: grid;
   gap: 8px;
+  overflow: auto;
+  min-height: 0;
+  align-content: start;
 }
 .member {
   border: 1px solid var(--line);
