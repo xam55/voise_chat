@@ -2792,8 +2792,8 @@ function playCue(type) {
     leave: 0.22,
     pttDown: 0.18,
     pttUp: 0.18,
-    ringOut: 0.3,
-    ringIn: 0.3,
+    ringOut: 0.55,
+    ringIn: 0.55,
   }[type] || 0.22;
 
   if (!tones) return;
