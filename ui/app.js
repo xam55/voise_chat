@@ -95,6 +95,9 @@ const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const sinkProbe = document.getElementById('sinkProbe');
 const remoteAudio = document.getElementById('remoteAudio');
 const toast = document.getElementById('toast');
+const splashScreen = document.getElementById('splashScreen');
+
+const APP_BOOT_TS = Date.now();
 
 const NET_TUNE = {
   incomingPollMs: 700,
@@ -164,6 +167,7 @@ const state = {
   updateInfo: null,
   updatePollRef: null,
   updateBusy: false,
+  splashHidden: false,
 };
 
 localStorage.setItem('nx_me_code', state.me.code);
@@ -190,6 +194,22 @@ function init() {
   void syncGroupsFromServer(true);
   startIncomingWatcher();
   void checkForAppUpdate();
+  queueSplashHide();
+}
+
+function queueSplashHide() {
+  if (!splashScreen || state.splashHidden) return;
+  state.splashHidden = true;
+  const minVisibleMs = 4000;
+  const elapsed = Date.now() - APP_BOOT_TS;
+  const waitMs = Math.max(0, minVisibleMs - elapsed);
+  setTimeout(() => {
+    splashScreen.classList.add('fade-out');
+    document.body.classList.remove('launching');
+    setTimeout(() => {
+      splashScreen.remove();
+    }, 420);
+  }, waitMs);
 }
 
 function bindEvents() {

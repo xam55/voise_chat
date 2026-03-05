@@ -20,6 +20,93 @@ body {
   color: var(--text);
   background: linear-gradient(130deg, #07080a, #0e1116 50%, #111728);
 }
+body.launching {
+  overflow: hidden;
+}
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 70% 15%, rgba(88, 101, 242, 0.2), transparent 45%),
+    radial-gradient(circle at 20% 80%, rgba(98, 213, 190, 0.18), transparent 42%),
+    linear-gradient(135deg, #07080a, #0f1218 50%, #121a2c);
+  transition: opacity 0.38s ease, visibility 0.38s ease;
+}
+.splash-screen.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.splash-card {
+  width: min(420px, 92vw);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: rgba(18, 21, 28, 0.72);
+  backdrop-filter: blur(8px);
+  padding: 28px 24px;
+  text-align: center;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
+}
+.splash-logo-wrap {
+  display: grid;
+  place-items: center;
+}
+.splash-logo {
+  width: 92px;
+  height: 92px;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  text-transform: uppercase;
+  font-weight: 800;
+  font-size: 34px;
+  color: #0f1420;
+  background: linear-gradient(145deg, #6ea2ff, #63d7c2);
+  box-shadow: 0 16px 40px rgba(88, 101, 242, 0.35);
+  animation: splashFloat 1.8s ease-in-out infinite;
+}
+.splash-title {
+  margin: 14px 0 4px;
+  font-size: 38px;
+  line-height: 1.1;
+}
+.splash-subtitle {
+  margin: 0;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+}
+.splash-loader {
+  margin-top: 16px;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 11, 16, 0.75);
+  overflow: hidden;
+}
+.splash-loader-bar {
+  display: block;
+  width: 38%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5865f2, #62d5be);
+  animation: splashLoad 1.15s ease-in-out infinite;
+}
+
+@keyframes splashFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes splashLoad {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(330%); }
+}
 
 .app {
   display: grid;
