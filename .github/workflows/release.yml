@@ -6,27 +6,16 @@ on:
       - "v*"
 
 jobs:
-  windows-portable:
-    runs-on: windows-latest
+  publish-release:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build portable zip
-        shell: pwsh
-        run: ./scripts/build-portable.ps1
-        working-directory: nexuschat
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nexuschat-portable
-          path: nexuschat/NexusChat-portable-x86_64-pc-windows-msvc.zip
-
-      - name: Publish GitHub Release asset
+      - name: Publish GitHub Release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: nexuschat/NexusChat-portable-x86_64-pc-windows-msvc.zip
+          files: |
+            download/nizamvoice.exe
+            download/nizamvoice-setup.exe
+            download/nizamvoice.msi
