@@ -226,6 +226,25 @@
     </div>
   </div>
 
+  <div id="modalUpdate" class="modal hidden">
+    <div class="modal-card">
+      <h3>Update available</h3>
+      <p id="updateVersionText" class="modal-note">A new version is ready to install.</p>
+      <p id="updateNotesText" class="modal-note"></p>
+      <div class="update-progress-wrap">
+        <div class="update-progress-bar">
+          <div id="updateProgressFill" class="update-progress-fill"></div>
+        </div>
+        <div id="updateProgressText" class="update-progress-text">0%</div>
+      </div>
+      <div class="modal-actions">
+        <button id="updateDownloadBtn" class="primary">Download</button>
+        <button id="updateInstallBtn" class="primary hidden">Install</button>
+        <button id="updateLaterBtn">Later</button>
+      </div>
+    </div>
+  </div>
+
   <audio id="sinkProbe" class="hidden"></audio>
   <audio id="remoteAudio" class="hidden" autoplay></audio>
   <div id="serverMenu" class="ctx-menu hidden">

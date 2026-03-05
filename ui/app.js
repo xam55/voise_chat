@@ -51,6 +51,7 @@ const modalSettings = document.getElementById('modalSettings');
 const modalAddMember = document.getElementById('modalAddMember');
 const modalIncomingCall = document.getElementById('modalIncomingCall');
 const modalDeleteServer = document.getElementById('modalDeleteServer');
+const modalUpdate = document.getElementById('modalUpdate');
 
 const friendNickInput = document.getElementById('friendNickInput');
 const friendCodeInput = document.getElementById('friendCodeInput');
@@ -73,6 +74,13 @@ const declineCallBtn = document.getElementById('declineCallBtn');
 const deleteServerText = document.getElementById('deleteServerText');
 const deleteServerYesBtn = document.getElementById('deleteServerYesBtn');
 const deleteServerNoBtn = document.getElementById('deleteServerNoBtn');
+const updateVersionText = document.getElementById('updateVersionText');
+const updateNotesText = document.getElementById('updateNotesText');
+const updateProgressFill = document.getElementById('updateProgressFill');
+const updateProgressText = document.getElementById('updateProgressText');
+const updateDownloadBtn = document.getElementById('updateDownloadBtn');
+const updateInstallBtn = document.getElementById('updateInstallBtn');
+const updateLaterBtn = document.getElementById('updateLaterBtn');
 
 const myNickInput = document.getElementById('myNickInput');
 const myCodeInput = document.getElementById('myCodeInput');
@@ -153,6 +161,9 @@ const state = {
   groupPending: {},
   pingTimerRef: null,
   deleteServerConfirmResolve: null,
+  updateInfo: null,
+  updatePollRef: null,
+  updateBusy: false,
 };
 
 localStorage.setItem('nx_me_code', state.me.code);
@@ -178,6 +189,7 @@ function init() {
   startGroupSyncLoop();
   void syncGroupsFromServer(true);
   startIncomingWatcher();
+  void checkForAppUpdate();
 }
 
 function bindEvents() {
@@ -204,6 +216,9 @@ function bindEvents() {
   declineCallBtn.onclick = () => rejectIncomingCall(true);
   deleteServerYesBtn.onclick = () => closeDeleteServerConfirm(true);
   deleteServerNoBtn.onclick = () => closeDeleteServerConfirm(false);
+  updateDownloadBtn.onclick = onUpdateDownload;
+  updateInstallBtn.onclick = onUpdateInstall;
+  updateLaterBtn.onclick = () => modalUpdate.classList.add('hidden');
   serverMenuDeleteBtn.onclick = () => {
     const serverId = state.serverMenuServerId;
     closeServerMenu();
@@ -256,7 +271,7 @@ function bindEvents() {
     btn.onclick = () => document.getElementById(btn.dataset.close).classList.add('hidden');
   });
 
-  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer].forEach((m) => {
+  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer, modalUpdate].forEach((m) => {
     m.onclick = (e) => {
       if (e.target !== m) return;
       if (m === modalDeleteServer) {
@@ -2322,6 +2337,153 @@ async function applyOutputDevice(silent = false) {
     if (!silent) showToast('Устройство вывода обновлено');
   } catch (_) {
     if (!silent) showToast('Не удалось применить устройство вывода');
+  }
+}
+
+function hasTauriInvoke() {
+  return typeof window !== 'undefined'
+    && typeof window.__TAURI__ !== 'undefined'
+    && typeof window.__TAURI__.core !== 'undefined'
+    && typeof window.__TAURI__.core.invoke === 'function';
+}
+
+async function tauriInvoke(command, args = {}) {
+  if (!hasTauriInvoke()) {
+    throw new Error('tauri_invoke_unavailable');
+  }
+  return window.__TAURI__.core.invoke(command, args);
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  const size = value / (1024 ** index);
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function applyUpdateProgressUi(progress) {
+  const downloaded = Number(progress?.downloaded || 0);
+  const total = Number(progress?.total || 0);
+  const hasTotal = total > 0;
+  const percent = hasTotal ? Math.max(0, Math.min(100, Math.round((downloaded / total) * 100))) : 0;
+  updateProgressFill.style.width = `${percent}%`;
+
+  if (progress?.error) {
+    updateProgressText.textContent = `Ошибка: ${progress.error}`;
+    updateProgressText.classList.add('is-error');
+    return;
+  }
+
+  updateProgressText.classList.remove('is-error');
+  if (progress?.finished) {
+    updateProgressText.textContent = `Готово: ${formatBytes(downloaded)}`;
+    return;
+  }
+
+  if (hasTotal) {
+    updateProgressText.textContent = `${percent}% • ${formatBytes(downloaded)} / ${formatBytes(total)}`;
+  } else if (progress?.in_progress) {
+    updateProgressText.textContent = `Загрузка... ${formatBytes(downloaded)}`;
+  } else {
+    updateProgressText.textContent = '0%';
+  }
+}
+
+function stopUpdatePolling() {
+  if (!state.updatePollRef) return;
+  clearInterval(state.updatePollRef);
+  state.updatePollRef = null;
+}
+
+function setUpdateButtonsMode(mode) {
+  if (mode === 'idle') {
+    updateDownloadBtn.disabled = false;
+    updateDownloadBtn.classList.remove('hidden');
+    updateInstallBtn.classList.add('hidden');
+    return;
+  }
+  if (mode === 'downloading') {
+    updateDownloadBtn.disabled = true;
+    updateDownloadBtn.classList.remove('hidden');
+    updateInstallBtn.classList.add('hidden');
+    return;
+  }
+  if (mode === 'ready') {
+    updateDownloadBtn.classList.add('hidden');
+    updateInstallBtn.classList.remove('hidden');
+    updateInstallBtn.disabled = false;
+  }
+}
+
+async function checkForAppUpdate() {
+  if (!modalUpdate || !hasTauriInvoke()) return;
+  try {
+    const info = await tauriInvoke('check_update');
+    if (!info?.available) return;
+    state.updateInfo = info;
+    updateVersionText.textContent = `Доступна версия ${info.version} (текущая ${info.current_version})`;
+    updateNotesText.textContent = info.notes ? `Что нового: ${info.notes.slice(0, 300)}` : '';
+    applyUpdateProgressUi({ downloaded: 0, total: info.size || 0 });
+    setUpdateButtonsMode('idle');
+    openModal(modalUpdate);
+  } catch (error) {
+    console.warn('update check failed', error);
+  }
+}
+
+async function onUpdateDownload() {
+  if (!state.updateInfo || state.updateBusy) return;
+  state.updateBusy = true;
+  setUpdateButtonsMode('downloading');
+  applyUpdateProgressUi({ downloaded: 0, total: state.updateInfo.size || 0 });
+  try {
+    await tauriInvoke('start_update_download', {
+      downloadUrl: state.updateInfo.download_url,
+      version: state.updateInfo.version,
+      assetName: state.updateInfo.asset_name,
+    });
+
+    stopUpdatePolling();
+    state.updatePollRef = setInterval(async () => {
+      try {
+        const progress = await tauriInvoke('get_update_progress');
+        applyUpdateProgressUi(progress);
+        if (progress?.error) {
+          stopUpdatePolling();
+          state.updateBusy = false;
+          setUpdateButtonsMode('idle');
+          showToast('Ошибка загрузки обновления');
+          return;
+        }
+        if (progress?.finished) {
+          stopUpdatePolling();
+          state.updateBusy = false;
+          setUpdateButtonsMode('ready');
+          showToast('Обновление загружено');
+        }
+      } catch (_) {
+        stopUpdatePolling();
+        state.updateBusy = false;
+        setUpdateButtonsMode('idle');
+        showToast('Ошибка проверки прогресса обновления');
+      }
+    }, 400);
+  } catch (_) {
+    state.updateBusy = false;
+    setUpdateButtonsMode('idle');
+    showToast('Не удалось начать загрузку обновления');
+  }
+}
+
+async function onUpdateInstall() {
+  try {
+    updateInstallBtn.disabled = true;
+    await tauriInvoke('install_downloaded_update');
+  } catch (_) {
+    updateInstallBtn.disabled = false;
+    showToast('Не удалось запустить установщик обновления');
   }
 }
 

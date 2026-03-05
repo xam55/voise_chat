@@ -1,6 +1,6 @@
 [package]
 name = "nizamvoice-desktop"
-version = "1.0.0"
+version = "1.0.3"
 description = "nizamvoice desktop client (Tauri)"
 authors = ["nizamvoice"]
 license = "MIT"
@@ -23,4 +23,5 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.0", features = [] }
 tauri-plugin-log = "2"
-
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"
