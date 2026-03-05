@@ -2747,18 +2747,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nexuschat-desktop"
-version = "1.0.0"
-dependencies = [
- "log",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
-]
-
-[[package]]
 name = "nexuschat-proto"
 version = "1.0.0"
 dependencies = [
@@ -2776,6 +2764,18 @@ dependencies = [
  "libc",
  "memoffset 0.7.1",
  "pin-utils",
+]
+
+[[package]]
+name = "nizamvoice-desktop"
+version = "1.0.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
 ]
 
 [[package]]

@@ -1,12 +1,12 @@
-﻿# NexusChat: Мини-гайд пользователя (Windows)
+# nizamvoice: Мини-гайд пользователя (Windows)
 
 ## Что нужно
-- GUI приложение: `dist/desktop/nexuschat-desktop.exe` (или setup/msi)
+- GUI приложение: `dist/desktop/nizamvoice-desktop.exe` (или setup/msi)
 - CLI клиент: `nexuschat-client.exe` (для консольных команд)
 - ключ друга в формате `NX-XXXXXX`
 
 ## Запуск GUI (как обычная программа)
-- Двойной клик по `dist/desktop/nexuschat-desktop.exe`
+- Двойной клик по `dist/desktop/nizamvoice-desktop.exe`
 - Либо через `scripts/start-desktop.bat`
 
 ## Первый запуск
@@ -43,3 +43,4 @@
 ## Если ошибка сети
 - Клиент автоматически делает ретраи и пишет статус переподключения.
 - Повтори команду через 2-3 секунды, если сервер вернул `429 Too Many Requests`.
+

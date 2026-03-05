@@ -1,15 +1,15 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "NexusChat",
+  "productName": "nizamvoice",
   "version": "1.0.0",
-  "identifier": "com.nexuschat.desktop",
+  "identifier": "com.nizamvoice.desktop",
   "build": {
     "frontendDist": "../../../ui"
   },
   "app": {
     "windows": [
       {
-        "title": "NexusChat",
+        "title": "nizamvoice",
         "width": 1280,
         "height": 840,
         "minWidth": 980,
@@ -34,3 +34,4 @@
     ]
   }
 }
+

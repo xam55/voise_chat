@@ -18,7 +18,7 @@ mod webrtc_bootstrap;
 
 #[derive(Debug, Parser)]
 #[command(name = "nexuschat-client")]
-#[command(about = "NexusChat bootstrap CLI")]
+#[command(about = "nizamvoice bootstrap CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -368,7 +368,7 @@ async fn main() -> anyhow::Result<()> {
                     Ok(resp) => resp,
                     Err(err) => {
                         println!(
-                            "attempt={} проблема сети, переподключаем... reason={}",
+                            "attempt={} РїСЂРѕР±Р»РµРјР° СЃРµС‚Рё, РїРµСЂРµРїРѕРґРєР»СЋС‡Р°РµРј... reason={}",
                             attempt, err
                         );
                         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
@@ -388,7 +388,7 @@ async fn main() -> anyhow::Result<()> {
 
                     if matches!(view.state, SessionState::Connected | SessionState::Failed) {
                         if matches!(view.state, SessionState::Connected) {
-                            println!("Соединение восстановлено");
+                            println!("РЎРѕРµРґРёРЅРµРЅРёРµ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРѕ");
                         }
                         break;
                     }
@@ -758,3 +758,4 @@ mod tests {
         assert!(sanitized.contains(r#""candidate":"***""#));
     }
 }
+

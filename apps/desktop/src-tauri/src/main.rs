@@ -2,5 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  nexuschat_desktop_lib::run();
+  nizamvoice_desktop_lib::run();
 }
+

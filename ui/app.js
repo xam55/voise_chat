@@ -1,4 +1,4 @@
-﻿const dmList = document.getElementById('dmList');
+const dmList = document.getElementById('dmList');
 const serverList = document.getElementById('serverList');
 const textChannelList = document.getElementById('textChannelList');
 const voiceChannelList = document.getElementById('voiceChannelList');
@@ -110,7 +110,7 @@ const bootstrapServers = safeJson('nx_servers') || [];
 
 const state = {
   me: {
-    nick: localStorage.getItem('nx_me_nick') || 'Nexus User',
+    nick: localStorage.getItem('nx_me_nick') || 'nizamvoice user',
     code: bootstrapCode,
     server: localStorage.getItem('nx_signal_server') || 'http://127.0.0.1:8080',
   },
@@ -2659,3 +2659,4 @@ function escapeHtml(text) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
+

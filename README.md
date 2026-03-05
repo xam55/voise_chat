@@ -1,4 +1,4 @@
-﻿# NexusChat (Rust P2P) - Bootstrap
+# nizamvoice (Rust P2P) - Bootstrap
 
 Текущая версия: `1.0.0`
 
@@ -121,7 +121,7 @@ cd nexuschat
 Результат:
 - `dist/signal-server.exe`
 - `dist/nexuschat-client.exe`
-- `NexusChat-portable-x86_64-pc-windows-msvc.zip`
+- `nizamvoice-portable-x86_64-pc-windows-msvc.zip`
 
 ## Desktop App (Tauri GUI)
 
@@ -134,9 +134,9 @@ npm run tauri:build
 ```
 
 Артефакты:
-- `dist/desktop/nexuschat-desktop.exe`
-- `dist/desktop/NexusChat_1.0.0_x64-setup.exe`
-- `dist/desktop/NexusChat_1.0.0_x64_en-US.msi`
+- `dist/desktop/nizamvoice-desktop.exe`
+- `dist/desktop/nizamvoice_1.0.0_x64-setup.exe`
+- `dist/desktop/nizamvoice_1.0.0_x64_en-US.msi`
 
 Быстрый запуск:
 - `scripts/start-desktop.bat`
@@ -179,3 +179,4 @@ cd nexuschat
 Утилиты деплоя:
 - `scripts/deploy-railway.ps1`
 - `scripts/check-deploy.ps1`
+
