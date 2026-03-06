@@ -6,8 +6,6 @@ use std::{
   sync::{Arc, Mutex},
   time::{Duration, Instant},
 };
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -397,9 +395,9 @@ fn install_downloaded_update(app: AppHandle, state: State<'_, UpdaterShared>) ->
     let file_path_lc = file_path.to_ascii_lowercase();
     let escaped_file_path = file_path.replace('"', "\"\"");
     let install_cmd = if file_path_lc.ends_with(".msi") {
-      format!("msiexec /i \"{escaped_file_path}\"")
+      format!("start \"\" /wait msiexec /i \"{escaped_file_path}\"")
     } else {
-      format!("\"{escaped_file_path}\"")
+      format!("start \"\" /wait \"{escaped_file_path}\"")
     };
     // Run installer, then relaunch installed app to avoid users reopening old portable exe.
     let script = format!(
@@ -408,7 +406,6 @@ fn install_downloaded_update(app: AppHandle, state: State<'_, UpdaterShared>) ->
 
     Command::new("cmd")
       .args(["/C", &script])
-      .creation_flags(0x08000000)
       .spawn()
       .map_err(|e| format!("update_install_failed: {e}"))?;
   }

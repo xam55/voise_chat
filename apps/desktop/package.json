@@ -1,6 +1,6 @@
 {
   "name": "nizamvoice-desktop",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "private": true,
   "scripts": {
     "tauri:dev": "tauri dev",
@@ -10,5 +10,6 @@
     "@tauri-apps/cli": "^2.10.0"
   }
 }
+
 
 
