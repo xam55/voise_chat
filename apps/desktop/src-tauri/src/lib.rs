@@ -390,32 +390,10 @@ fn install_downloaded_update(app: AppHandle, state: State<'_, UpdaterShared>) ->
       .ok_or_else(|| "update_file_not_downloaded".to_string())?
   };
 
-  #[cfg(target_os = "windows")]
-  {
-    let file_path_lc = file_path.to_ascii_lowercase();
-    let escaped_file_path = file_path.replace('"', "\"\"");
-    let install_cmd = if file_path_lc.ends_with(".msi") {
-      format!("start \"\" /wait msiexec /i \"{escaped_file_path}\"")
-    } else {
-      format!("start \"\" /wait \"{escaped_file_path}\"")
-    };
-    // Run installer, then relaunch installed app to avoid users reopening old portable exe.
-    let script = format!(
-      "{install_cmd} && timeout /t 1 /nobreak >nul && if exist \"%LOCALAPPDATA%\\nizamvoice\\nizamvoice.exe\" (start \"\" \"%LOCALAPPDATA%\\nizamvoice\\nizamvoice.exe\")"
-    );
-
-    Command::new("cmd")
-      .args(["/C", &script])
-      .spawn()
-      .map_err(|e| format!("update_install_failed: {e}"))?;
-  }
-
-  #[cfg(not(target_os = "windows"))]
-  {
-    Command::new(file_path)
-      .spawn()
-      .map_err(|e| format!("update_install_failed: {e}"))?;
-  }
+  // Keep updater install flow simple and robust: run downloaded installer directly.
+  Command::new(file_path)
+    .spawn()
+    .map_err(|e| format!("update_install_failed: {e}"))?;
 
   app.exit(0);
   Ok(())
