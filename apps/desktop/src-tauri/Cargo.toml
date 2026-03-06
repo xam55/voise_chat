@@ -1,6 +1,6 @@
 [package]
 name = "nizamvoice-desktop"
-version = "1.0.9"
+version = "1.0.10"
 description = "nizamvoice desktop client (Tauri)"
 authors = ["nizamvoice"]
 license = "MIT"
@@ -29,3 +29,4 @@ futures-util = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_Input_KeyboardAndMouse"] }
+

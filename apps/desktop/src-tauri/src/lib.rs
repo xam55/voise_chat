@@ -2,9 +2,12 @@ use std::{
   fs::{self, File},
   io::Write,
   path::PathBuf,
+  process::Command,
   sync::{Arc, Mutex},
   time::{Duration, Instant},
 };
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -389,9 +392,33 @@ fn install_downloaded_update(app: AppHandle, state: State<'_, UpdaterShared>) ->
       .ok_or_else(|| "update_file_not_downloaded".to_string())?
   };
 
-  std::process::Command::new(file_path)
-    .spawn()
-    .map_err(|e| format!("update_install_failed: {e}"))?;
+  #[cfg(target_os = "windows")]
+  {
+    let file_path_lc = file_path.to_ascii_lowercase();
+    let escaped_file_path = file_path.replace('"', "\"\"");
+    let install_cmd = if file_path_lc.ends_with(".msi") {
+      format!("msiexec /i \"{escaped_file_path}\"")
+    } else {
+      format!("\"{escaped_file_path}\"")
+    };
+    // Run installer, then relaunch installed app to avoid users reopening old portable exe.
+    let script = format!(
+      "{install_cmd} && timeout /t 1 /nobreak >nul && if exist \"%LOCALAPPDATA%\\nizamvoice\\nizamvoice.exe\" (start \"\" \"%LOCALAPPDATA%\\nizamvoice\\nizamvoice.exe\")"
+    );
+
+    Command::new("cmd")
+      .args(["/C", &script])
+      .creation_flags(0x08000000)
+      .spawn()
+      .map_err(|e| format!("update_install_failed: {e}"))?;
+  }
+
+  #[cfg(not(target_os = "windows"))]
+  {
+    Command::new(file_path)
+      .spawn()
+      .map_err(|e| format!("update_install_failed: {e}"))?;
+  }
 
   app.exit(0);
   Ok(())
