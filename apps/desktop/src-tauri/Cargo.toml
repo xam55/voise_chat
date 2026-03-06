@@ -1,6 +1,6 @@
 [package]
 name = "nizamvoice-desktop"
-version = "1.0.7"
+version = "1.0.9"
 description = "nizamvoice desktop client (Tauri)"
 authors = ["nizamvoice"]
 license = "MIT"
