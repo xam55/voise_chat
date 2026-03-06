@@ -411,6 +411,13 @@ fn set_global_ptt_binding(state: State<'_, GlobalPttShared>, binding: String) ->
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+      if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+      }
+    }))
     .manage(UpdaterShared(Arc::new(Mutex::new(UpdateProgress::default()))))
     .manage(GlobalPttShared(Arc::new(Mutex::new(GlobalPttState::default()))))
     .invoke_handler(tauri::generate_handler![
