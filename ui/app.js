@@ -1040,6 +1040,54 @@ function getTextChannelKey(target) {
   return `grp:${creator}:${serverName}:${channel}`;
 }
 
+function resolveChannelStorageKey(channelId) {
+  const raw = String(channelId || '').trim();
+  if (!raw) return '';
+  const rawLower = raw.toLowerCase();
+  if (state.activeChatChannelId && String(state.activeChatChannelId).toLowerCase() === rawLower) {
+    return state.activeChatChannelId;
+  }
+  const known = Object.keys(state.textMessages).find((k) => String(k || '').toLowerCase() === rawLower);
+  return known || raw;
+}
+
+function chatMessageIdentity(msg) {
+  const idPart = String(msg?.id || '').trim();
+  if (idPart) return `id:${idPart}`;
+  const author = String(msg?.authorCode || '').toUpperCase();
+  const ts = Number(msg?.ts || 0);
+  const text = String(msg?.text || '');
+  return `fp:${author}:${ts}:${text}`;
+}
+
+function mergeChatLists(currentList, incomingList) {
+  const a = Array.isArray(currentList) ? currentList : [];
+  const b = Array.isArray(incomingList) ? incomingList : [];
+  const merged = new Map();
+  [...a, ...b].forEach((msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    const key = chatMessageIdentity(msg);
+    const prev = merged.get(key);
+    if (!prev) {
+      merged.set(key, msg);
+      return;
+    }
+    const prevTs = Number(prev.ts || 0);
+    const nextTs = Number(msg.ts || 0);
+    if (nextTs >= prevTs) {
+      merged.set(key, msg);
+    }
+  });
+  return [...merged.values()]
+    .sort((x, y) => {
+      const dx = Number(x.ts || 0);
+      const dy = Number(y.ts || 0);
+      if (dx !== dy) return dx - dy;
+      return String(x.id || '').localeCompare(String(y.id || ''));
+    })
+    .slice(-300);
+}
+
 function parseDmPeerCodeFromChannel(channelId) {
   const raw = String(channelId || '').trim();
   const match = raw.match(/^dm:([^:]+):([^:]+)$/i);
@@ -1078,18 +1126,20 @@ function ensureFriendExists(code, suggestedNick = '') {
 }
 
 function getUnreadCountByChannelId(channelId) {
-  const list = Array.isArray(state.textMessages[channelId]) ? state.textMessages[channelId] : [];
-  const seenTs = Number(state.chatSeenTs[channelId] || 0);
+  const key = resolveChannelStorageKey(channelId);
+  const list = Array.isArray(state.textMessages[key]) ? state.textMessages[key] : [];
+  const seenTs = Number(state.chatSeenTs[key] || 0);
   return list.filter((msg) => msg.authorCode !== state.me.code && Number(msg.ts || 0) > seenTs).length;
 }
 
 function markChatAsSeen(channelId) {
-  if (!channelId) return;
-  const list = Array.isArray(state.textMessages[channelId]) ? state.textMessages[channelId] : [];
+  const key = resolveChannelStorageKey(channelId);
+  if (!key) return;
+  const list = Array.isArray(state.textMessages[key]) ? state.textMessages[key] : [];
   const lastTs = list.length ? Number(list[list.length - 1].ts || Date.now()) : Date.now();
-  const prevTs = Number(state.chatSeenTs[channelId] || 0);
+  const prevTs = Number(state.chatSeenTs[key] || 0);
   if (lastTs <= prevTs) return;
-  state.chatSeenTs[channelId] = lastTs;
+  state.chatSeenTs[key] = lastTs;
   persist('nx_chat_seen', state.chatSeenTs);
 }
 
@@ -1105,7 +1155,7 @@ function refreshUnreadUi() {
 
 function renderTextChannel() {
   if (!state.selectedTarget || (state.selectedTarget.kind !== 'text' && state.selectedTarget.kind !== 'dm')) return;
-  const key = getTextChannelKey(state.selectedTarget);
+  const key = resolveChannelStorageKey(getTextChannelKey(state.selectedTarget));
   const list = Array.isArray(state.textMessages[key]) ? state.textMessages[key] : [];
   markChatAsSeen(key);
 
@@ -1143,7 +1193,7 @@ async function sendTextMessage() {
   const text = chatInput.value.trim();
   if (!text) return;
 
-  const key = getTextChannelKey(state.selectedTarget);
+  const key = resolveChannelStorageKey(getTextChannelKey(state.selectedTarget));
   const ts = Date.now();
   try {
     const resp = await signalPost('/v1/chat/send', {
@@ -1155,7 +1205,7 @@ async function sendTextMessage() {
     });
     const fromServer = normalizeChatList(resp?.messages);
     if (fromServer.length) {
-      state.textMessages[key] = fromServer;
+      state.textMessages[key] = mergeChatLists(state.textMessages[key], fromServer);
     } else {
       await syncTextChannelFromServer(key, true);
     }
@@ -1174,7 +1224,7 @@ function startTextChannelPolling(channelId) {
   state.chatPollRef = setInterval(() => {
     if (!state.selectedTarget) return;
     if (state.selectedTarget.kind !== 'text' && state.selectedTarget.kind !== 'dm') return;
-    if (state.activeChatChannelId !== channelId) return;
+    if (String(state.activeChatChannelId || '').toLowerCase() !== String(channelId || '').toLowerCase()) return;
     void syncTextChannelFromServer(channelId, true);
   }, NET_TUNE.chatPollMs);
 }
@@ -1187,20 +1237,23 @@ function stopTextChannelPolling() {
 }
 
 async function syncTextChannelFromServer(channelId, silent = false) {
-  if (state.chatSyncBusyChannel === channelId) return;
-  state.chatSyncBusyChannel = channelId;
+  const key = resolveChannelStorageKey(channelId);
+  if (!key) return;
+  if (state.chatSyncBusyChannel === key) return;
+  state.chatSyncBusyChannel = key;
   try {
-    const prevList = Array.isArray(state.textMessages[channelId]) ? state.textMessages[channelId] : [];
-    const prevLastId = prevList.length ? String(prevList[prevList.length - 1].id || '') : '';
-    const resp = await signalGet(`/v1/chat/history/${channelId}?limit=200`);
+    const prevList = Array.isArray(state.textMessages[key]) ? state.textMessages[key] : [];
+    const prevLastMark = prevList.length ? chatMessageIdentity(prevList[prevList.length - 1]) : '';
+    const resp = await signalGet(`/v1/chat/history/${encodeURIComponent(key)}?limit=200`);
     const list = normalizeChatList(resp?.messages);
-    state.textMessages[channelId] = list;
+    const merged = mergeChatLists(prevList, list);
+    state.textMessages[key] = merged;
     persist('nx_text_messages', state.textMessages);
-    const nextLastId = list.length ? String(list[list.length - 1].id || '') : '';
-    const hasNew = !!nextLastId && nextLastId !== prevLastId;
+    const nextLastMark = merged.length ? chatMessageIdentity(merged[merged.length - 1]) : '';
+    const hasNew = !!nextLastMark && nextLastMark !== prevLastMark;
     if (
       (state.selectedTarget?.kind === 'text' || state.selectedTarget?.kind === 'dm')
-      && state.activeChatChannelId === channelId
+      && String(state.activeChatChannelId || '').toLowerCase() === key.toLowerCase()
     ) {
       renderTextChannel();
     } else if (hasNew) {
@@ -1216,7 +1269,7 @@ async function syncTextChannelFromServer(channelId, silent = false) {
       }
     }
   } finally {
-    if (state.chatSyncBusyChannel === channelId) {
+    if (state.chatSyncBusyChannel === key) {
       state.chatSyncBusyChannel = '';
     }
   }
@@ -1323,7 +1376,8 @@ function startChatSocket() {
 function applyIncomingChatSocketPayload(payload) {
   const normalized = normalizeIncomingChatSocketPayload(payload);
   if (!normalized) return;
-  const { channelId, message } = normalized;
+  const channelId = resolveChannelStorageKey(normalized.channelId);
+  const { message } = normalized;
   if (!channelId) return;
   const parsed = normalizeChatList([message]);
   if (!parsed.length) return;
@@ -1336,10 +1390,12 @@ function applyIncomingChatSocketPayload(payload) {
     }
   }
   const list = Array.isArray(state.textMessages[channelId]) ? state.textMessages[channelId] : [];
-  if (list.some((m) => String(m.id) === String(msg.id))) return;
-  list.push(msg);
-  list.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
-  state.textMessages[channelId] = list.slice(-300);
+  const beforeLen = list.length;
+  const beforeLastMark = beforeLen ? chatMessageIdentity(list[beforeLen - 1]) : '';
+  const merged = mergeChatLists(list, [msg]);
+  const afterLastMark = merged.length ? chatMessageIdentity(merged[merged.length - 1]) : '';
+  if (beforeLen === merged.length && beforeLastMark === afterLastMark) return;
+  state.textMessages[channelId] = merged;
   persist('nx_text_messages', state.textMessages);
 
   const activeChatId = String(state.activeChatChannelId || '').trim();

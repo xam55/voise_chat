@@ -427,6 +427,7 @@ body.launching {
   text-align: left;
   padding: 12px;
   min-height: 0;
+  overflow: hidden;
 }
 .text-call-strip {
   display: grid;
@@ -537,9 +538,10 @@ body.launching {
   align-items: stretch;
 }
 .chat-composer textarea {
-  resize: vertical;
+  resize: none;
   min-height: 64px;
-  max-height: 200px;
+  max-height: 140px;
+  overflow: auto;
   background: #0f1115;
   color: var(--text);
   border: 1px solid var(--line);
