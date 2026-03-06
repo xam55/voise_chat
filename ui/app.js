@@ -53,6 +53,7 @@ const modalAddMember = document.getElementById('modalAddMember');
 const modalIncomingCall = document.getElementById('modalIncomingCall');
 const modalDeleteServer = document.getElementById('modalDeleteServer');
 const modalUpdate = document.getElementById('modalUpdate');
+const modalRenameFriend = document.getElementById('modalRenameFriend');
 
 const friendNickInput = document.getElementById('friendNickInput');
 const friendCodeInput = document.getElementById('friendCodeInput');
@@ -82,6 +83,8 @@ const updateProgressText = document.getElementById('updateProgressText');
 const updateDownloadBtn = document.getElementById('updateDownloadBtn');
 const updateInstallBtn = document.getElementById('updateInstallBtn');
 const updateLaterBtn = document.getElementById('updateLaterBtn');
+const renameFriendInput = document.getElementById('renameFriendInput');
+const renameFriendSaveBtn = document.getElementById('renameFriendSaveBtn');
 
 const myNickInput = document.getElementById('myNickInput');
 const myCodeInput = document.getElementById('myCodeInput');
@@ -121,6 +124,8 @@ const DEFAULT_SIGNAL_SERVER = 'http://5.129.239.69:8080';
 const DEFAULT_TURN_SERVER = 'turn:5.129.239.69:3478?transport=udp';
 const DEFAULT_TURN_USER = 'nizam';
 const DEFAULT_TURN_PASS = 'nizam#26!';
+const DEMO_FRIEND_CODES = new Set(['NX-AL3X10', 'NX-MAX009', 'NX-AAAA11']);
+const DEMO_FRIEND_NICKS = new Set(['alex dev', 'maxo', 'alpha']);
 
 function normalizeSignalServer(raw) {
   let value = String(raw || '').trim();
@@ -177,6 +182,7 @@ const state = {
   friendVolumes: bootstrapFriendVolumes,
   friendMenuCode: '',
   friendMenuCanRename: false,
+  renameFriendCode: '',
   serverMenuServerId: '',
   chatPollRef: null,
   activeChatChannelId: '',
@@ -294,6 +300,16 @@ function bindEvents() {
   updateDownloadBtn.onclick = onUpdateDownload;
   updateInstallBtn.onclick = onUpdateInstall;
   updateLaterBtn.onclick = () => modalUpdate.classList.add('hidden');
+  if (renameFriendSaveBtn) {
+    renameFriendSaveBtn.onclick = onSaveRenameFriend;
+  }
+  if (renameFriendInput) {
+    renameFriendInput.onkeydown = (event) => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      onSaveRenameFriend();
+    };
+  }
   serverMenuDeleteBtn.onclick = () => {
     const serverId = state.serverMenuServerId;
     closeServerMenu();
@@ -326,7 +342,7 @@ function bindEvents() {
 
   pttKeyInput.onclick = () => {
     state.capturingPttKey = true;
-    pttKeyInput.value = 'Р СњР В°Р В¶Р СР С‘ Р С”Р В»Р В°Р Р†Р С‘РЎв‚¬РЎС“ Р С‘Р В»Р С‘ Р С”Р Р…Р С•Р С—Р С”РЎС“ Р СРЎвЂ№РЎв‚¬Р С‘...';
+    pttKeyInput.value = 'Нажми клавишу или кнопку мыши...';
   };
 
   document.addEventListener('keydown', onGlobalKeyDown);
@@ -359,10 +375,17 @@ function bindEvents() {
   });
 
   document.querySelectorAll('[data-close]').forEach((btn) => {
-    btn.onclick = () => document.getElementById(btn.dataset.close).classList.add('hidden');
+    btn.onclick = () => {
+      const modalId = String(btn.dataset.close || '');
+      if (modalId === 'modalRenameFriend') {
+        closeRenameFriendModal();
+        return;
+      }
+      document.getElementById(modalId)?.classList.add('hidden');
+    };
   });
 
-  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer, modalUpdate].forEach((m) => {
+  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer, modalUpdate, modalRenameFriend].forEach((m) => {
     m.onclick = (e) => {
       if (e.target !== m) return;
       if (m === modalDeleteServer) {
@@ -371,6 +394,10 @@ function bindEvents() {
       }
       if (m === modalIncomingCall) {
         void rejectIncomingCall(true);
+        return;
+      }
+      if (m === modalRenameFriend) {
+        closeRenameFriendModal();
         return;
       }
       m.classList.add('hidden');
@@ -384,7 +411,7 @@ function onGlobalKeyDown(event) {
     state.capturingPttKey = false;
     state.pttKey = event.code || event.key;
     pttKeyInput.value = humanInputKey(state.pttKey);
-    showToast(`Р С™Р В»Р В°Р Р†Р С‘РЎв‚¬Р В° PTT: ${humanInputKey(state.pttKey)}`);
+    showToast(`Клавиша PTT: ${humanInputKey(state.pttKey)}`);
     void syncGlobalPttBinding();
     return;
   }
@@ -406,7 +433,7 @@ function onGlobalMouseDown(event) {
     state.capturingPttKey = false;
     state.pttKey = `Mouse${event.button}`;
     pttKeyInput.value = humanInputKey(state.pttKey);
-    showToast(`Р С™Р Р…Р С•Р С—Р С”Р В° PTT: ${humanInputKey(state.pttKey)}`);
+    showToast(`Кнопка PTT: ${humanInputKey(state.pttKey)}`);
     void syncGlobalPttBinding();
     return;
   }
@@ -426,7 +453,7 @@ function pressToTalkStart() {
   state.pttHeld = true;
   const track = state.micStream.getAudioTracks()[0];
   if (track) track.enabled = true;
-  statusEl.textContent = `Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С–Р С•Р Р†Р С•РЎР‚Р С‘РЎв‚¬РЎРЉ (${humanInputKey(state.pttKey)})`;
+  statusEl.textContent = `Статус: говоришь (${humanInputKey(state.pttKey)})`;
   playCue('pttDown');
 }
 
@@ -465,9 +492,9 @@ async function syncGlobalPttBinding() {
 }
 
 function getConnectedStatusText() {
-  if (!state.callConnected) return 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С•РЎвЂљР С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•';
-  if (state.groupVoice) return `Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р Р† Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р С Р С”Р В°Р Р…Р В°Р В»Р Вµ ${state.groupVoice.channel}`;
-  return 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•';
+  if (!state.callConnected) return 'Статус: отключено';
+  if (state.groupVoice) return `Статус: в голосовом канале ${state.groupVoice.channel}`;
+  return 'Статус: подключено';
 }
 
 function renderProfile() {
@@ -478,9 +505,9 @@ function renderProfile() {
 
 function renderVoiceModeHint() {
   if (state.voiceMode === 'ptt') {
-    voiceModeHint.textContent = `Р В Р ВµР В¶Р С‘Р С Р Р†Р Р†Р С•Р Т‘Р В°: Р Р…Р В°Р В¶Р В°РЎвЂљРЎРЉ Р С‘ Р С–Р С•Р Р†Р С•РЎР‚Р С‘РЎвЂљРЎРЉ (${humanInputKey(state.pttKey)})`;
+    voiceModeHint.textContent = `Режим ввода: нажать и говорить (${humanInputKey(state.pttKey)})`;
   } else {
-    voiceModeHint.textContent = 'Р В Р ВµР В¶Р С‘Р С Р Р†Р Р†Р С•Р Т‘Р В°: Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљРЎвЂ№Р в„– Р СР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р…';
+    voiceModeHint.textContent = 'Режим ввода: открытый микрофон';
   }
 }
 
@@ -508,17 +535,17 @@ function bindTextCallMirror() {
 
 function syncTextCallInfo() {
   if (!textCallState || !textCallMeta || !textCallTimer || !textCallStatus) return;
-  textCallMeta.textContent = activeMeta?.textContent || 'P2P РІР‚Сћ -- ms';
+  textCallMeta.textContent = activeMeta?.textContent || 'P2P • -- ms';
   textCallTimer.textContent = timerEl?.textContent || '00:00';
-  textCallStatus.textContent = statusEl?.textContent || 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С•Р В¶Р С‘Р Т‘Р В°Р Р…Р С‘Р Вµ';
+  textCallStatus.textContent = statusEl?.textContent || 'Статус: ожидание';
 
-  let stateText = 'Р вЂ”Р Р†Р С•Р Р…Р С•Р С”: Р Р…Р Вµ Р С‘Р Т‘Р ВµРЎвЂљ';
+  let stateText = 'Звонок: не идет';
   let cssClass = 'idle';
   if (state.callConnected) {
-    stateText = state.groupVoice ? 'Р вЂ”Р Р†Р С•Р Р…Р С•Р С”: Р Р† Р С–РЎР‚РЎС“Р С—Р С—Р Вµ' : 'Р вЂ”Р Р†Р С•Р Р…Р С•Р С”: Р С‘Р Т‘Р ВµРЎвЂљ';
+    stateText = state.groupVoice ? 'Звонок: в группе' : 'Звонок: идет';
     cssClass = 'live';
   } else if (state.call || Object.keys(state.groupPending || {}).length > 0) {
-    stateText = 'Р вЂ”Р Р†Р С•Р Р…Р С•Р С”: Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С‘Р Вµ...';
+    stateText = 'Звонок: подключение...';
     cssClass = 'dialing';
   }
 
@@ -555,8 +582,8 @@ function openServerMenu(server, x, y) {
   const canDelete = server.creatorCode === state.me.code;
   serverMenuDeleteBtn.disabled = !canDelete;
   serverMenuDeleteBtn.textContent = canDelete
-    ? 'Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“'
-    : 'Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ (РЎвЂљР С•Р В»РЎРЉР С”Р С• РЎРѓР С•Р В·Р Т‘Р В°РЎвЂљР ВµР В»РЎРЉ)';
+    ? 'Удалить группу'
+    : 'Удалить группу (только создатель)';
 
   serverMenu.classList.remove('hidden');
   const menuW = 230;
@@ -577,7 +604,7 @@ async function onServerContextDelete(serverId) {
   const server = state.servers.find((s) => s.id === serverId);
   if (!server) return;
   if (server.creatorCode !== state.me.code) {
-    showToast('Р Р€Р Т‘Р В°Р В»РЎРЏРЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ Р СР С•Р В¶Р ВµРЎвЂљ РЎвЂљР С•Р В»РЎРЉР С”Р С• РЎРѓР С•Р В·Р Т‘Р В°РЎвЂљР ВµР В»РЎРЉ');
+    showToast('Удалять группу может только создатель');
     return;
   }
   const ok = await confirmDeleteServer(server.name);
@@ -614,14 +641,14 @@ async function onServerContextDelete(serverId) {
     renderHome();
   }
   renderServers();
-  showToast(`Р вЂњРЎР‚РЎС“Р С—Р С—Р В° ${server.name} РЎС“Р Т‘Р В°Р В»Р ВµР Р…Р В°`);
+  showToast(`Группа ${server.name} удалена`);
 }
 
 function confirmDeleteServer(serverName) {
   if (state.deleteServerConfirmResolve) {
     closeDeleteServerConfirm(false);
   }
-  deleteServerText.textContent = `Р Р€Р Т‘Р В°Р В»Р С‘РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ "${serverName}"? Р В­РЎвЂљР С• Р Т‘Р ВµР в„–РЎРѓРЎвЂљР Р†Р С‘Р Вµ Р Р…Р ВµР В»РЎРЉР В·РЎРЏ Р С•РЎвЂљР СР ВµР Р…Р С‘РЎвЂљРЎРЉ.`;
+  deleteServerText.textContent = `Удалить группу "${serverName}"? Это действие нельзя отменить.`;
   modalDeleteServer.classList.remove('hidden');
   return new Promise((resolve) => {
     state.deleteServerConfirmResolve = resolve;
@@ -637,13 +664,13 @@ function closeDeleteServerConfirm(result) {
 
 function renderHome() {
   stopTextChannelPolling();
-  scopeTitle.textContent = 'Р вЂєР С‘РЎвЂЎР Р…РЎвЂ№Р Вµ';
+  scopeTitle.textContent = 'Личные';
   channelSection.classList.add('hidden');
   createChannelBtn.classList.add('hidden');
   addMemberBtn.classList.add('hidden');
   showVoicePanel();
-  connectBtn.textContent = 'Р СџР С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
-  disconnectBtn.textContent = 'Р С›РЎвЂљР С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
+  connectBtn.textContent = 'Подключиться';
+  disconnectBtn.textContent = 'Отключиться';
   renderDMs();
   renderMembers([]);
 }
@@ -721,12 +748,34 @@ function onFriendVolumeInput() {
 
 function onRenameFriendFromMenu() {
   if (!state.friendMenuCode || !state.friendMenuCanRename) return;
+  if (!renameFriendInput || !modalRenameFriend) return;
   const friend = state.friends.find((f) => f.code === state.friendMenuCode);
   if (!friend) return;
+  state.renameFriendCode = friend.code;
+  renameFriendInput.value = friend.nick;
+  closeFriendMenu();
+  openModal(modalRenameFriend);
+  setTimeout(() => {
+    renameFriendInput.focus();
+    renameFriendInput.select();
+  }, 0);
+}
 
-  const nextNickRaw = window.prompt('Новое имя контакта', friend.nick);
-  if (nextNickRaw === null) return;
-  const nextNick = String(nextNickRaw).trim();
+function closeRenameFriendModal() {
+  state.renameFriendCode = '';
+  if (renameFriendInput) renameFriendInput.value = '';
+  if (modalRenameFriend) modalRenameFriend.classList.add('hidden');
+}
+
+function onSaveRenameFriend() {
+  if (!renameFriendInput) return;
+  if (!state.renameFriendCode) return;
+  const friend = state.friends.find((f) => f.code === state.renameFriendCode);
+  if (!friend) {
+    closeRenameFriendModal();
+    return;
+  }
+  const nextNick = String(renameFriendInput.value || '').trim();
   if (!nextNick) {
     showToast('Имя не может быть пустым');
     return;
@@ -751,7 +800,7 @@ function onRenameFriendFromMenu() {
 
   renderDMs();
   refreshSelectedPresence();
-  closeFriendMenu();
+  closeRenameFriendModal();
   showToast(`Имя контакта обновлено: ${friend.nick}`);
 }
 
@@ -765,13 +814,13 @@ function selectDM(friend) {
     memberCodes: [state.me.code, friend.code],
   };
   mainTitle.textContent = friend.nick;
-  mainSubtitle.textContent = `Р вЂєР С‘РЎвЂЎР Р…РЎвЂ№Р в„– Р С”Р В°Р Р…Р В°Р В» РІР‚Сћ ${friend.code}`;
+  mainSubtitle.textContent = `Личный канал • ${friend.code}`;
   activeName.textContent = friend.nick;
   activeAvatar.textContent = initials(friend.nick);
-  activeMeta.textContent = 'P2P РІР‚Сћ -- ms';
-  statusEl.textContent = friend.online ? 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С–Р С•РЎвЂљР С•Р Р† Р С” Р В·Р Р†Р С•Р Р…Р С”РЎС“' : 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљР ВµР В»РЎРЉ Р Р…Р Вµ Р Р† РЎРѓР ВµРЎвЂљР С‘';
-  connectBtn.textContent = 'Р СџР С•Р В·Р Р†Р С•Р Р…Р С‘РЎвЂљРЎРЉ';
-  disconnectBtn.textContent = 'Р С›РЎвЂљР С”Р В»Р С•Р Р…Р С‘РЎвЂљРЎРЉ';
+  activeMeta.textContent = 'P2P • -- ms';
+  statusEl.textContent = friend.online ? 'Статус: готов к звонку' : 'Статус: пользователь не в сети';
+  connectBtn.textContent = 'Позвонить';
+  disconnectBtn.textContent = 'Отклонить';
   renderMembers(state.selectedTarget.memberCodes);
   const channelId = getTextChannelKey(state.selectedTarget);
   state.activeChatChannelId = channelId;
@@ -829,7 +878,7 @@ function renderServerChannels() {
         <div class="item-left">
           <div class="item-meta">
             <strong># ${escapeHtml(name)}</strong>
-            <span>Р СћР ВµР С”РЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– Р С”Р В°Р Р…Р В°Р В»</span>
+            <span>Текстовый канал</span>
           </div>
         </div>
         ${unread > 0 ? `<span class="unread-badge">${unread > 99 ? '99+' : unread}</span>` : ''}
@@ -852,8 +901,8 @@ function renderServerChannels() {
       li.innerHTML = `
         <div class="item-left">
           <div class="item-meta">
-            <strong>СЂСџвЂќР‰ ${escapeHtml(name)}</strong>
-            <span>Р вЂњР С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р в„– Р С”Р В°Р Р…Р В°Р В»${occupants.length ? ` РІР‚Сћ ${occupants.length} Р Р† Р С”Р В°Р Р…Р В°Р В»Р Вµ` : ''}</span>
+            <strong>🔊 ${escapeHtml(name)}</strong>
+            <span>Голосовой канал${occupants.length ? ` • ${occupants.length} в канале` : ''}</span>
           </div>
         </div>
         ${occupants.length ? `<div class="voice-users">${occupants
@@ -935,13 +984,13 @@ function selectTextChannel(server, channel) {
     memberCodes: [...server.memberCodes],
   };
   mainTitle.textContent = `#${channel}`;
-  mainSubtitle.textContent = `${server.name} РІР‚Сћ РЎвЂљР ВµР С”РЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– Р С”Р В°Р Р…Р В°Р В»`;
+  mainSubtitle.textContent = `${server.name} • текстовый канал`;
   activeName.textContent = `#${channel}`;
   activeAvatar.textContent = '#';
-  activeMeta.textContent = 'Р СћР ВµР С”РЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– РЎР‚Р ВµР В¶Р С‘Р С';
-  statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р ВµРЎР‚Р ВµР С”Р В»РЎР‹РЎвЂЎР С‘РЎРѓРЎРЉ Р Р† Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р в„– Р С”Р В°Р Р…Р В°Р В» Р Т‘Р В»РЎРЏ Р В·Р Р†Р С•Р Р…Р С”Р В°';
-  connectBtn.textContent = 'Р СџР С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
-  disconnectBtn.textContent = 'Р С›РЎвЂљР С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
+  activeMeta.textContent = 'Текстовый режим';
+  statusEl.textContent = 'Статус: переключись в голосовой канал для звонка';
+  connectBtn.textContent = 'Подключиться';
+  disconnectBtn.textContent = 'Отключиться';
   renderMembers(state.selectedTarget.memberCodes);
   const channelId = getTextChannelKey(state.selectedTarget);
   state.activeChatChannelId = channelId;
@@ -962,18 +1011,18 @@ function selectVoiceChannel(server, channel) {
     name: `${server.name} / ${channel}`,
     memberCodes: [...server.memberCodes],
   };
-  mainTitle.textContent = `СЂСџвЂќР‰ ${channel}`;
-  mainSubtitle.textContent = `${server.name} РІР‚Сћ Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р в„– Р С”Р В°Р Р…Р В°Р В»`;
+  mainTitle.textContent = `🔊 ${channel}`;
+  mainSubtitle.textContent = `${server.name} • голосовой канал`;
   activeName.textContent = channel;
   activeAvatar.textContent = 'VC';
-  activeMeta.textContent = 'Р вЂњРЎР‚РЎС“Р С—Р С—Р В° РІР‚Сћ -- ms';
+  activeMeta.textContent = 'Группа • -- ms';
   const isActive = state.callConnected
     && state.groupVoice
     && state.groupVoice.serverId === server.id
     && state.groupVoice.channel === channel;
-  statusEl.textContent = isActive ? `Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р Р† Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р С Р С”Р В°Р Р…Р В°Р В»Р Вµ ${channel}` : 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С–Р С•РЎвЂљР С•Р Р† Р С” Р С–РЎР‚РЎС“Р С—Р С—Р С•Р Р†Р С•Р СРЎС“ Р В·Р Р†Р С•Р Р…Р С”РЎС“';
-  connectBtn.textContent = 'Р СџР С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
-  disconnectBtn.textContent = 'Р С›РЎвЂљР С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ';
+  statusEl.textContent = isActive ? `Статус: в голосовом канале ${channel}` : 'Статус: готов к групповому звонку';
+  connectBtn.textContent = 'Подключиться';
+  disconnectBtn.textContent = 'Отключиться';
   renderMembers(state.selectedTarget.memberCodes);
   renderServerChannels();
 }
@@ -1005,6 +1054,7 @@ function parseDmPeerCodeFromChannel(channelId) {
 function ensureFriendExists(code, suggestedNick = '') {
   const normalized = String(code || '').trim().toUpperCase();
   if (!/^NX-[A-Z0-9]{6}$/.test(normalized) || normalized === state.me.code) return null;
+  if (isDemoFriendEntry(normalized, suggestedNick)) return null;
   let friend = state.friends.find((f) => f.code === normalized);
   if (friend) {
     if ((!friend.nick || /^User\s+NX-/i.test(friend.nick)) && suggestedNick) {
@@ -1063,7 +1113,7 @@ function renderTextChannel() {
   if (!list.length) {
     const empty = document.createElement('div');
     empty.className = 'chat-empty';
-    empty.textContent = 'Р СџР С•Р С”Р В° Р Р…Р ВµРЎвЂљ РЎРѓР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р в„–. Р СњР В°Р С—Р С‘РЎв‚¬Р С‘ Р С—Р ВµРЎР‚Р Р†РЎвЂ№Р С.';
+    empty.textContent = 'Пока нет сообщений. Напиши первым.';
     chatMessages.appendChild(empty);
     return;
   }
@@ -1086,7 +1136,7 @@ function renderTextChannel() {
 
 async function sendTextMessage() {
   if (!state.selectedTarget || (state.selectedTarget.kind !== 'text' && state.selectedTarget.kind !== 'dm')) {
-    showToast('Р’С‹Р±РµСЂРё С‡Р°С‚');
+    showToast('Выбери чат');
     return;
   }
 
@@ -1111,7 +1161,7 @@ async function sendTextMessage() {
     }
     chatInput.value = '';
   } catch (_) {
-    showToast('РЎРµСЂРІРµСЂ С‡Р°С‚Р° РЅРµРґРѕСЃС‚СѓРїРµРЅ');
+    showToast('Сервер чата недоступен');
     return;
   }
   persist('nx_text_messages', state.textMessages);
@@ -1160,9 +1210,9 @@ async function syncTextChannelFromServer(channelId, silent = false) {
     if (!silent) {
       const msg = String(err?.message || '');
       if (msg.includes('404') || msg.includes('not_found')) {
-        showToast('Р СњР В° РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚Р Вµ Р С—Р С•Р С”Р В° Р Р…Р ВµРЎвЂљ API РЎвЂЎР В°РЎвЂљР В°, Р С•Р В±Р Р…Р С•Р Р†Р В»РЎРЏРЎР‹ РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚');
+        showToast('На сервере пока нет API чата, обновляю сервер');
       } else {
-        showToast('Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ РЎРѓР С•Р С•Р В±РЎвЂ°Р ВµР Р…Р С‘Р в„–');
+        showToast('Ошибка загрузки сообщений');
       }
     }
   } finally {
@@ -1250,14 +1300,10 @@ function startChatSocket() {
     } catch (_) {}
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     if (!event?.data) return;
-    let payload;
-    try {
-      payload = JSON.parse(String(event.data));
-    } catch (_) {
-      return;
-    }
+    const payload = await decodeChatSocketPayload(event.data);
+    if (!payload) return;
     applyIncomingChatSocketPayload(payload);
   };
 
@@ -1275,10 +1321,11 @@ function startChatSocket() {
 }
 
 function applyIncomingChatSocketPayload(payload) {
-  if (!payload || payload.type !== 'chat_message') return;
-  const channelId = String(payload.channel_id || '').trim();
+  const normalized = normalizeIncomingChatSocketPayload(payload);
+  if (!normalized) return;
+  const { channelId, message } = normalized;
   if (!channelId) return;
-  const parsed = normalizeChatList(payload.message ? [payload.message] : []);
+  const parsed = normalizeChatList([message]);
   if (!parsed.length) return;
   const msg = parsed[0];
   if (String(channelId).startsWith('dm:')) {
@@ -1295,14 +1342,49 @@ function applyIncomingChatSocketPayload(payload) {
   state.textMessages[channelId] = list.slice(-300);
   persist('nx_text_messages', state.textMessages);
 
-  if (
+  const activeChatId = String(state.activeChatChannelId || '').trim();
+  const isActiveChat = (
     (state.selectedTarget?.kind === 'text' || state.selectedTarget?.kind === 'dm')
-    && state.activeChatChannelId === channelId
-  ) {
+    && activeChatId
+    && activeChatId.toLowerCase() === channelId.toLowerCase()
+  );
+  if (isActiveChat) {
+    if (state.activeChatChannelId !== channelId) {
+      state.activeChatChannelId = channelId;
+    }
     renderTextChannel();
   } else {
     refreshUnreadUi();
   }
+}
+
+function normalizeIncomingChatSocketPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const type = String(payload.type || '').trim().toLowerCase();
+  if (type !== 'chat_message' && type !== 'chat_ack') return null;
+  const channelId = String(payload.channel_id || payload.channelId || '').trim();
+  const message = payload.message || payload.data || null;
+  if (!channelId || !message || typeof message !== 'object') return null;
+  return { channelId, message };
+}
+
+async function decodeChatSocketPayload(data) {
+  try {
+    if (typeof data === 'string') return JSON.parse(data);
+    if (data instanceof Blob) {
+      const text = await data.text();
+      return JSON.parse(text);
+    }
+    if (data instanceof ArrayBuffer) {
+      return JSON.parse(new TextDecoder().decode(new Uint8Array(data)));
+    }
+    if (ArrayBuffer.isView(data)) {
+      return JSON.parse(new TextDecoder().decode(data));
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
 }
 
 function renderMembers(memberCodes) {
@@ -1310,7 +1392,7 @@ function renderMembers(memberCodes) {
   if (!memberCodes.length) {
     const li = document.createElement('li');
     li.className = 'member';
-    li.textContent = 'Р СњР ВµРЎвЂљ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…Р С•Р С–Р С• Р С”Р В°Р Р…Р В°Р В»Р В°';
+    li.textContent = 'Нет выбранного канала';
     membersList.appendChild(li);
     return;
   }
@@ -1321,7 +1403,7 @@ function renderMembers(memberCodes) {
     if (!list.length) {
       const li = document.createElement('li');
       li.className = 'member';
-      li.textContent = 'Р вЂ™ РЎРЊРЎвЂљР С•Р С Р С”Р В°Р Р…Р В°Р В»Р Вµ Р С—Р С•Р С”Р В° Р Р…Р С‘Р С”Р С•Р С–Р С•';
+      li.textContent = 'В этом канале пока никого';
       membersList.appendChild(li);
       return;
     }
@@ -1349,18 +1431,18 @@ async function onSaveFriend() {
   const code = friendCodeInput.value.trim().toUpperCase();
 
   if (!nick || !/^NX-[A-Z0-9]{6}$/.test(code)) {
-    showToast('Р СњРЎС“Р В¶Р Р…РЎвЂ№ Р С‘Р СРЎРЏ Р Т‘РЎР‚РЎС“Р С–Р В° Р С‘ Р С”Р С•Р Т‘ Р Р†Р С‘Р Т‘Р В° NX-XXXXXX');
+    showToast('Нужны имя друга и код вида NX-XXXXXX');
     return;
   }
 
   if (code === state.me.code) {
-    showToast('Р В­РЎвЂљР С• РЎвЂљР Р†Р С•Р в„– Р С”Р С•Р Т‘');
+    showToast('Это твой код');
     return;
   }
 
   const exists = state.friends.some((f) => f.code === code || f.nick.toLowerCase() === nick.toLowerCase());
   if (exists) {
-    showToast('Р СџР С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљР ВµР В»РЎРЉ РЎС“Р В¶Р Вµ Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…');
+    showToast('Пользователь уже добавлен');
     return;
   }
 
@@ -1380,16 +1462,16 @@ async function onSaveFriend() {
   renderDMs();
   void syncFriendsFromServer(true);
   void refreshOnlineStatuses();
-  showToast(`Р вЂќРЎР‚РЎС“Р С– ${nick} Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…`);
+  showToast(`Друг ${nick} добавлен`);
 }
 
 async function onSaveServer() {
   const name = serverNameInput.value.trim();
-  const text = (defaultTextInput.value.trim() || 'Р С•Р В±РЎвЂ°Р С‘Р в„–').toLowerCase();
+  const text = (defaultTextInput.value.trim() || 'общий').toLowerCase();
   const voice = (defaultVoiceInput.value.trim() || 'voice-1').toLowerCase();
 
   if (!name) {
-    showToast('Р Р€Р С”Р В°Р В¶Р С‘ Р Р…Р В°Р В·Р Р†Р В°Р Р…Р С‘Р Вµ Р С–РЎР‚РЎС“Р С—Р С—РЎвЂ№');
+    showToast('Укажи название группы');
     return;
   }
 
@@ -1414,7 +1496,7 @@ async function onSaveServer() {
 
   renderServers();
   selectServer(server.id);
-  showToast(`Р вЂњРЎР‚РЎС“Р С—Р С—Р В° ${name} РЎРѓР С•Р В·Р Т‘Р В°Р Р…Р В°`);
+  showToast(`Группа ${name} создана`);
 }
 
 async function onSaveChannel() {
@@ -1423,17 +1505,17 @@ async function onSaveChannel() {
   const server = state.servers.find((s) => s.id === state.selectedServerId);
 
   if (!server) {
-    showToast('Р РЋР Р…Р В°РЎвЂЎР В°Р В»Р В° Р Р†РЎвЂ№Р В±Р ВµРЎР‚Р С‘ Р С–РЎР‚РЎС“Р С—Р С—РЎС“');
+    showToast('Сначала выбери группу');
     return;
   }
   if (!name) {
-    showToast('Р Р€Р С”Р В°Р В¶Р С‘ Р Р…Р В°Р В·Р Р†Р В°Р Р…Р С‘Р Вµ Р С”Р В°Р Р…Р В°Р В»Р В°');
+    showToast('Укажи название канала');
     return;
   }
 
   const list = type === 'voice' ? server.voiceChannels : server.textChannels;
   if (list.includes(name)) {
-    showToast('Р С™Р В°Р Р…Р В°Р В» РЎС“Р В¶Р Вµ РЎРѓРЎС“РЎвЂ°Р ВµРЎРѓРЎвЂљР Р†РЎС“Р ВµРЎвЂљ');
+    showToast('Канал уже существует');
     return;
   }
 
@@ -1444,7 +1526,7 @@ async function onSaveChannel() {
   channelNameInput.value = '';
   modalCreateChannel.classList.add('hidden');
   renderServerChannels();
-  showToast(`Р С™Р В°Р Р…Р В°Р В» ${name} РЎРѓР С•Р В·Р Т‘Р В°Р Р…`);
+  showToast(`Канал ${name} создан`);
 }
 
 async function onSaveMember() {
@@ -1452,21 +1534,21 @@ async function onSaveMember() {
   const server = state.servers.find((s) => s.id === state.selectedServerId);
 
   if (!server) {
-    showToast('Р РЋР Р…Р В°РЎвЂЎР В°Р В»Р В° Р Р†РЎвЂ№Р В±Р ВµРЎР‚Р С‘ Р С–РЎР‚РЎС“Р С—Р С—РЎС“');
+    showToast('Сначала выбери группу');
     return;
   }
 
   if (server.creatorCode !== state.me.code) {
-    showToast('Р вЂќР С•Р В±Р В°Р Р†Р В»РЎРЏРЎвЂљРЎРЉ РЎС“РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С”Р С•Р Р† Р СР С•Р В¶Р ВµРЎвЂљ РЎвЂљР С•Р В»РЎРЉР С”Р С• РЎРѓР С•Р В·Р Т‘Р В°РЎвЂљР ВµР В»РЎРЉ');
+    showToast('Добавлять участников может только создатель');
     return;
   }
 
   if (!/^NX-[A-Z0-9]{6}$/.test(code)) {
-    showToast('Р С™Р С•Р Т‘ Р Т‘Р С•Р В»Р В¶Р ВµР Р… Р В±РЎвЂ№РЎвЂљРЎРЉ NX-XXXXXX');
+    showToast('Код должен быть NX-XXXXXX');
     return;
   }
   if (server.memberCodes.includes(code)) {
-    showToast('Р Р€РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С” РЎС“Р В¶Р Вµ Р Р† Р С”Р В°Р Р…Р В°Р В»Р Вµ');
+    showToast('Участник уже в канале');
     return;
   }
 
@@ -1482,7 +1564,7 @@ async function onSaveMember() {
     state.selectedTarget.memberCodes = [...server.memberCodes];
     renderMembers(state.selectedTarget.memberCodes);
   }
-  showToast(`Р Р€РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С” ${code} Р Т‘Р С•Р В±Р В°Р Р†Р В»Р ВµР Р…`);
+  showToast(`Участник ${code} добавлен`);
 }
 
 function loadSettingsFields() {
@@ -1504,7 +1586,7 @@ function onSaveSettings() {
   const turnUser = DEFAULT_TURN_USER;
   const turnPass = DEFAULT_TURN_PASS;
   if (!nick || !server) {
-    showToast('Р вЂ”Р В°Р С—Р С•Р В»Р Р…Р С‘ Р Р…Р С‘Р С” Р С‘ РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚');
+    showToast('Заполни ник и сервер');
     return;
   }
 
@@ -1537,35 +1619,35 @@ function onSaveSettings() {
   startPresenceLoops();
   startGroupSyncLoop();
   void syncGroupsFromServer(true);
-  showToast('Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘ РЎРѓР С•РЎвЂ¦РЎР‚Р В°Р Р…Р ВµР Р…РЎвЂ№');
+  showToast('Настройки сохранены');
 }
 
 async function connectCall() {
   if (!state.selectedTarget) {
-    showToast('Р вЂ™РЎвЂ№Р В±Р ВµРЎР‚Р С‘ Р С”Р С•Р Р…РЎвЂљР В°Р С”РЎвЂљ Р С‘Р В»Р С‘ Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р в„– Р С”Р В°Р Р…Р В°Р В»');
+    showToast('Выбери контакт или голосовой канал');
     return;
   }
 
   if (state.selectedTarget.kind === 'text') {
-    showToast('Р СћР ВµР С”РЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– Р С”Р В°Р Р…Р В°Р В» Р Р…Р Вµ Р С—Р С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С‘Р Р†Р В°Р ВµРЎвЂљ РЎРѓР С•Р В·Р Р†Р С•Р Р…');
+    showToast('Текстовый канал не поддерживает созвон');
     return;
   }
 
   if (state.me.server.includes('127.0.0.1') || state.me.server.includes('localhost')) {
-    showToast('Р РЋР ВµРЎР‚Р Р†Р ВµРЎР‚ localhost РЎР‚Р В°Р В±Р С•РЎвЂљР В°Р ВµРЎвЂљ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р Т‘Р В»РЎРЏ РЎвЂљР ВµРЎРѓРЎвЂљР В° Р Р…Р В° Р С•Р Т‘Р Р…Р С•Р С Р СџР С™');
+    showToast('Сервер localhost работает только для теста на одном ПК');
   }
 
   const requestedKey = selectedTargetCallKey();
 
   if (state.callConnected || state.call) {
     if (requestedKey && requestedKey === state.callTargetKey) {
-      showToast('Р РЋР С•Р В·Р Р†Р С•Р Р… РЎС“Р В¶Р Вµ Р В°Р С”РЎвЂљР С‘Р Р†Р ВµР Р…');
+      showToast('Созвон уже активен');
       return;
     }
     if (state.selectedTarget.kind === 'voice' && state.callTargetKey?.startsWith('voice:')) {
       await switchActiveCall();
     } else {
-      showToast('Р РЋР Р…Р В°РЎвЂЎР В°Р В»Р В° Р С•РЎвЂљР С”Р В»РЎР‹РЎвЂЎР С‘РЎРѓРЎРЉ Р С•РЎвЂљ РЎвЂљР ВµР С”РЎС“РЎвЂ°Р ВµР С–Р С• Р В·Р Р†Р С•Р Р…Р С”Р В°');
+      showToast('Сначала отключись от текущего звонка');
       return;
     }
   }
@@ -1575,7 +1657,7 @@ async function connectCall() {
     state.callTargetKey = `voice:${state.selectedServerId}:${state.selectedTarget.id}`;
     state.groupVoice = { serverId: state.selectedServerId, channel: state.selectedTarget.id };
     state.callConnected = true;
-    statusEl.textContent = `Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р Р† Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р С Р С”Р В°Р Р…Р В°Р В»Р Вµ ${state.selectedTarget.id}`;
+    statusEl.textContent = `Статус: в голосовом канале ${state.selectedTarget.id}`;
     startPingLoop();
     startTimer();
     await ensureMicStream(true);
@@ -1584,31 +1666,31 @@ async function connectCall() {
     startGroupLinkLoop();
     renderServerChannels();
     renderMembers(state.selectedTarget.memberCodes);
-    showToast(`Р СџР С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р… Р С” Р С”Р В°Р Р…Р В°Р В»РЎС“ ${state.selectedTarget.id}`);
+    showToast(`Подключен к каналу ${state.selectedTarget.id}`);
     playCue('join');
     return;
   }
 
   if (state.selectedTarget.kind !== 'dm') {
-    showToast('Р вЂ™РЎвЂ№Р В±Р ВµРЎР‚Р С‘ Р Т‘РЎР‚РЎС“Р С–Р В° Р С‘Р В»Р С‘ Р С–Р С•Р В»Р С•РЎРѓР С•Р Р†Р С•Р в„– Р С”Р В°Р Р…Р В°Р В»');
+    showToast('Выбери друга или голосовой канал');
     return;
   }
 
   const friendCode = state.selectedTarget.id;
   if (!friendCode || !/^NX-[A-Z0-9]{6}$/.test(friendCode)) {
-    showToast('Р СњР ВµР С”Р С•РЎР‚РЎР‚Р ВµР С”РЎвЂљР Р…РЎвЂ№Р в„– Р С”Р С•Р Т‘ Р Т‘РЎР‚РЎС“Р С–Р В°');
+    showToast('Некорректный код друга');
     return;
   }
 
   const token = ++state.callToken;
   state.callTargetKey = `dm:${friendCode}`;
-  statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С‘Р Вµ...';
-  showToast('Р вЂ”Р Р†Р С•Р Р…Р С‘Р С Р Т‘РЎР‚РЎС“Р С–РЎС“...');
+  statusEl.textContent = 'Статус: подключение...';
+  showToast('Звоним другу...');
 
   try {
     await ensureMicStream(true);
     if (!state.micStream || !state.micStream.getAudioTracks().length) {
-      throw new Error('Р СљР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р… Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р ВµР Р…');
+      throw new Error('Микрофон недоступен');
     }
 
     await createOutgoingSession(friendCode, token);
@@ -1618,19 +1700,19 @@ async function connectCall() {
     stopRingingLoop();
     state.callConnected = true;
     state.groupVoice = null;
-    statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•';
+    statusEl.textContent = 'Статус: подключено';
     startPingLoop();
     startTimer();
     applyMicState();
     await sendSelfPresence();
     playCue('join');
-    showToast('P2P-РЎРѓР С•Р ВµР Т‘Р С‘Р Р…Р ВµР Р…Р С‘Р Вµ РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С•');
+    showToast('P2P-соединение установлено');
   } catch (err) {
     if (isActiveToken(token)) {
       stopRingingLoop();
       await teardownCall(false);
-      statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С•РЎв‚¬Р С‘Р В±Р С”Р В° Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С‘РЎРЏ';
-      showToast(`Р С›РЎв‚¬Р С‘Р В±Р С”Р В° РЎРѓР С•Р В·Р Р†Р С•Р Р…Р В°: ${err.message || err}`);
+      statusEl.textContent = 'Статус: ошибка подключения';
+      showToast(`Ошибка созвона: ${err.message || err}`);
     }
   }
 }
@@ -1646,8 +1728,8 @@ async function disconnectCall() {
   }
   state.callTargetKey = '';
   state.groupVoice = null;
-  statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С•РЎвЂљР С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•';
-  showToast('Р С›РЎвЂљР С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•');
+  statusEl.textContent = 'Статус: отключено';
+  showToast('Отключено');
   playCue('leave');
 }
 
@@ -1790,7 +1872,7 @@ function createPeer(friendCode, token) {
   pc.onconnectionstatechange = () => {
     if (!isActiveToken(token)) return;
     if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-      showToast('P2P Р Р…Р Вµ РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С•. Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЉ TURN Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р В°РЎвЂ¦.');
+      showToast('P2P не установлено. Проверь TURN в настройках.');
       disconnectCall();
     }
   };
@@ -1903,7 +1985,7 @@ async function createOutgoingGroupSession(friendCode, token) {
       await ensureMicStream(true);
     }
     if (!state.micStream || !state.micStream.getAudioTracks().length) {
-      throw new Error('Р СљР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р… Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р ВµР Р…');
+      throw new Error('Микрофон недоступен');
     }
     const peer = createGroupPeer(friendCode, token);
     peer.role = 'caller';
@@ -1912,7 +1994,7 @@ async function createOutgoingGroupSession(friendCode, token) {
     await peer.pc.setLocalDescription(offer);
     await waitIceComplete(peer.pc, token);
     if (!isActiveToken(token) || !state.callConnected || !state.groupVoice) {
-      throw new Error('Р вЂ”Р Р†Р С•Р Р…Р С•Р С” Р С•РЎвЂљР СР ВµР Р…Р ВµР Р…');
+      throw new Error('Звонок отменен');
     }
 
     const createResp = await signalPost('/v1/sessions/offer', {
@@ -1927,7 +2009,7 @@ async function createOutgoingGroupSession(friendCode, token) {
     });
 
     const sessionId = createResp.session_id;
-    if (!sessionId) throw new Error('Р СњР Вµ Р С—Р С•Р В»РЎС“РЎвЂЎР С‘Р В»Р С‘ session_id Р С•РЎвЂљ signal-server');
+    if (!sessionId) throw new Error('Не получили session_id от signal-server');
     peer.sessionId = sessionId;
 
     await signalPost('/v1/register', {
@@ -1937,9 +2019,9 @@ async function createOutgoingGroupSession(friendCode, token) {
     });
 
     const answer = await waitForAnswerOrDecline(sessionId, friendCode, token, 9000);
-    if (!answer) throw new Error('Р Р€РЎвЂЎР В°РЎРѓРЎвЂљР Р…Р С‘Р С” Р Р…Р Вµ Р С—РЎР‚Р С‘Р Р…РЎРЏР В» Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С‘Р Вµ');
+    if (!answer) throw new Error('Участник не принял подключение');
     if (!isActiveToken(token) || !state.callConnected || !state.groupVoice) {
-      throw new Error('Р вЂ”Р Р†Р С•Р Р…Р С•Р С” Р С•РЎвЂљР СР ВµР Р…Р ВµР Р…');
+      throw new Error('Звонок отменен');
     }
 
     await applyRemoteDescriptionWithFallback(peer.pc, 'answer', answer);
@@ -1967,7 +2049,7 @@ async function acceptIncomingGroupSession(friendCode, sessionId, token) {
       await ensureMicStream(true);
     }
     if (!state.micStream || !state.micStream.getAudioTracks().length) {
-      throw new Error('Р СљР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р… Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р ВµР Р…');
+      throw new Error('Микрофон недоступен');
     }
     const peer = createGroupPeer(friendCode, token);
     peer.role = 'callee';
@@ -1975,14 +2057,14 @@ async function acceptIncomingGroupSession(friendCode, sessionId, token) {
 
     const session = await signalGet(`/v1/sessions/${encodeURIComponent(sessionId)}?key=${encodeURIComponent(state.me.code)}`);
     const offerSdp = session?.sdp_offer;
-    if (!offerSdp) throw new Error('Р вЂ™РЎвЂ¦Р С•Р Т‘РЎРЏРЎвЂ°Р С‘Р в„– Р С•РЎвЂћРЎвЂћР ВµРЎР‚ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…');
+    if (!offerSdp) throw new Error('Входящий оффер не найден');
 
     await applyRemoteDescriptionWithFallback(peer.pc, 'offer', offerSdp);
     const answer = await peer.pc.createAnswer();
     await peer.pc.setLocalDescription(answer);
     await waitIceComplete(peer.pc, token);
     if (!isActiveToken(token) || !state.callConnected || !state.groupVoice) {
-      throw new Error('Р вЂ”Р Р†Р С•Р Р…Р С•Р С” Р С•РЎвЂљР СР ВµР Р…Р ВµР Р…');
+      throw new Error('Звонок отменен');
     }
 
     await signalPost(`/v1/sessions/${encodeURIComponent(sessionId)}/answer`, {
@@ -2016,7 +2098,7 @@ async function createOutgoingSession(friendCode, token, options = null) {
     ...(options?.context ? { context: options.context } : {}),
   });
   const sessionId = createResp.session_id;
-  if (!sessionId) throw new Error('Р СњР Вµ Р С—Р С•Р В»РЎС“РЎвЂЎР С‘Р В»Р С‘ session_id Р С•РЎвЂљ signal-server');
+  if (!sessionId) throw new Error('Не получили session_id от signal-server');
 
   state.call.sessionId = sessionId;
 
@@ -2029,7 +2111,7 @@ async function createOutgoingSession(friendCode, token, options = null) {
   startRingingLoop('outgoing');
 
   const answer = await waitForAnswerOrDecline(sessionId, friendCode, token);
-  if (!answer) throw new Error('Р вЂќРЎР‚РЎС“Р С– Р Р…Р Вµ Р С—РЎР‚Р С‘Р Р…РЎРЏР В» Р В·Р Р†Р С•Р Р…Р С•Р С”');
+  if (!answer) throw new Error('Друг не принял звонок');
 
   await applyRemoteDescriptionWithFallback(pc, 'answer', answer);
 
@@ -2047,7 +2129,7 @@ async function acceptIncomingSession(friendCode, sessionId, token, options = nul
 
   const session = await signalGet(`/v1/sessions/${encodeURIComponent(sessionId)}?key=${encodeURIComponent(state.me.code)}`);
   const offerSdp = session?.sdp_offer;
-  if (!offerSdp) throw new Error('Р вЂ™РЎвЂ¦Р С•Р Т‘РЎРЏРЎвЂ°Р С‘Р в„– Р С•РЎвЂћРЎвЂћР ВµРЎР‚ Р Р…Р Вµ Р Р…Р В°Р в„–Р Т‘Р ВµР Р…');
+  if (!offerSdp) throw new Error('Входящий оффер не найден');
 
   await applyRemoteDescriptionWithFallback(pc, 'offer', offerSdp);
   const answer = await pc.createAnswer();
@@ -2187,30 +2269,30 @@ async function acceptIncomingCall() {
 
   const token = ++state.callToken;
   state.callTargetKey = `dm:${incoming.fromCode}`;
-  statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—РЎР‚Р С‘Р Р…Р С‘Р СР В°Р ВµР С Р В·Р Р†Р С•Р Р…Р С•Р С”...';
+  statusEl.textContent = 'Статус: принимаем звонок...';
 
   try {
     await ensureMicStream(true);
     if (!state.micStream || !state.micStream.getAudioTracks().length) {
-      throw new Error('Р СљР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р… Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р ВµР Р…');
+      throw new Error('Микрофон недоступен');
     }
     await acceptIncomingSession(incoming.fromCode, incoming.sessionId, token);
     await waitForPeerConnected(state.call?.pc, token, 14000);
     if (!isActiveToken(token)) return;
     state.callConnected = true;
     state.groupVoice = null;
-    statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С•';
+    statusEl.textContent = 'Статус: подключено';
     startPingLoop();
     startTimer();
     applyMicState();
     await sendSelfPresence();
     playCue('join');
-    showToast(`Р РЋР С•Р ВµР Т‘Р С‘Р Р…Р ВµР Р…Р С‘Р Вµ РЎРѓ ${incoming.fromNick}`);
+    showToast(`Соединение с ${incoming.fromNick}`);
   } catch (err) {
     await teardownCall(false);
     state.callTargetKey = '';
-    statusEl.textContent = 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С•РЎв‚¬Р С‘Р В±Р С”Р В° Р С—Р С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР ВµР Р…Р С‘РЎРЏ';
-    showToast(`Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С—РЎР‚Р С‘Р Р…РЎРЏРЎвЂљР С‘РЎРЏ Р В·Р Р†Р С•Р Р…Р С”Р В°: ${err.message || err}`);
+    statusEl.textContent = 'Статус: ошибка подключения';
+    showToast(`Ошибка принятия звонка: ${err.message || err}`);
   }
 }
 
@@ -2323,31 +2405,31 @@ function stopPingLoop() {
 
 async function refreshPeerPing() {
   if (!state.callConnected) return;
-  const mode = state.groupVoice ? 'Р вЂњРЎР‚РЎС“Р С—Р С—Р В°' : 'P2P';
+  const mode = state.groupVoice ? 'Группа' : 'P2P';
   try {
     if (state.groupVoice) {
       const peers = Object.values(state.groupPeers).filter((peer) => peer.pc?.connectionState === 'connected');
       if (!peers.length) {
-        activeMeta.textContent = `${mode} РІР‚Сћ -- ms`;
+        activeMeta.textContent = `${mode} • -- ms`;
         return;
       }
       const pings = await Promise.all(peers.map(async (peer) => extractPingMsFromPeerConnection(peer.pc)));
       const valid = pings.filter((n) => Number.isFinite(n));
       if (!valid.length) {
-        activeMeta.textContent = `${mode} РІР‚Сћ -- ms`;
+        activeMeta.textContent = `${mode} • -- ms`;
         return;
       }
       const avg = Math.round(valid.reduce((acc, n) => acc + n, 0) / valid.length);
-      activeMeta.textContent = `${mode} РІР‚Сћ ${avg}ms`;
+      activeMeta.textContent = `${mode} • ${avg}ms`;
       return;
     }
 
     if (!state.call?.pc) {
-      activeMeta.textContent = `${mode} РІР‚Сћ -- ms`;
+      activeMeta.textContent = `${mode} • -- ms`;
       return;
     }
     const one = await extractPingMsFromPeerConnection(state.call.pc);
-    activeMeta.textContent = Number.isFinite(one) ? `${mode} РІР‚Сћ ${one}ms` : `${mode} РІР‚Сћ -- ms`;
+    activeMeta.textContent = Number.isFinite(one) ? `${mode} • ${one}ms` : `${mode} • -- ms`;
   } catch (_) {}
 }
 
@@ -2405,10 +2487,10 @@ async function waitForAnswerOrDecline(sessionId, friendCode, token, timeoutMs = 
       const resolved = await signalGet(`/v1/resolve/${encodeURIComponent(friendCode)}`);
       const endpoint = parseEndpoint(resolved?.endpoint);
       if (endpoint.kind === 'decline' && endpoint.sessionId === sessionId && endpoint.to === state.me.code) {
-        throw new Error('Р вЂ”Р Р†Р С•Р Р…Р С•Р С” Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…');
+        throw new Error('Звонок отклонен');
       }
     } catch (err) {
-      if (String(err?.message || '').includes('Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…')) throw err;
+      if (String(err?.message || '').includes('отклонен')) throw err;
     }
     await sleep(NET_TUNE.answerPollMs);
   }
@@ -2416,7 +2498,7 @@ async function waitForAnswerOrDecline(sessionId, friendCode, token, timeoutMs = 
 }
 
 async function waitIceComplete(pc, token, timeoutMs = NET_TUNE.iceGatherTimeoutMs) {
-  if (!isActiveToken(token)) throw new Error('Р вЂ”Р Р†Р С•Р Р…Р С•Р С” Р С•РЎвЂљР СР ВµР Р…Р ВµР Р…');
+  if (!isActiveToken(token)) throw new Error('Звонок отменен');
   if (pc.iceGatheringState === 'complete') return;
   await new Promise((resolve) => {
     const t = setTimeout(() => {
@@ -2502,7 +2584,7 @@ function isActiveToken(token) {
 }
 
 function ensureCallScope(nextKey) {
-  // No auto-disconnect on navigation. Switch happens only on explicit "Р СџР С•Р Т‘Р С”Р В»РЎР‹РЎвЂЎР С‘РЎвЂљРЎРЉРЎРѓРЎРЏ".
+  // No auto-disconnect on navigation. Switch happens only on explicit "Подключиться".
   void nextKey;
 }
 
@@ -2546,11 +2628,17 @@ async function syncFriendsFromServer(silent = false) {
     const resp = await signalGet(`/v1/friends/${encodeURIComponent(state.me.code)}`);
     const remote = Array.isArray(resp?.friends) ? resp.friends : [];
     let changed = false;
+    const filtered = state.friends.filter((f) => !isDemoFriendEntry(f.code, f.nick));
+    if (filtered.length !== state.friends.length) {
+      state.friends = filtered;
+      changed = true;
+    }
 
     remote.forEach((item) => {
       const code = String(item?.code || '').trim().toUpperCase();
       if (!/^NX-[A-Z0-9]{6}$/.test(code) || code === state.me.code) return;
       const nickFromServer = String(item?.nick || '').trim() || code;
+      if (isDemoFriendEntry(code, nickFromServer)) return;
       const endpoint = String(item?.endpoint || '').trim();
       const online = !!item?.online;
       const existing = state.friends.find((f) => f.code === code);
@@ -2622,8 +2710,8 @@ async function syncGroupsFromServer(silent = false) {
   } catch (err) {
     if (!silent) {
       const msg = String(err?.message || '');
-      if (msg.includes('404')) showToast('Signal-server Р В±Р ВµР В· API Р С–РЎР‚РЎС“Р С—Р С—, Р С•Р В±Р Р…Р С•Р Р†Р С‘ РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚');
-      else showToast('Р С›РЎв‚¬Р С‘Р В±Р С”Р В° РЎРѓР С‘Р Р…РЎвЂ¦РЎР‚Р С•Р Р…Р С‘Р В·Р В°РЎвЂ Р С‘Р С‘ Р С–РЎР‚РЎС“Р С—Р С—');
+      if (msg.includes('404')) showToast('Signal-server без API групп, обнови сервер');
+      else showToast('Ошибка синхронизации групп');
     }
   }
 }
@@ -2641,7 +2729,7 @@ async function syncServerToBackend(server) {
       },
     });
   } catch (_) {
-    showToast('Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ РЎРѓР С‘Р Р…РЎвЂ¦РЎР‚Р С•Р Р…Р С‘Р В·Р С‘РЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ Р С–РЎР‚РЎС“Р С—Р С—РЎС“ Р Р…Р В° РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚');
+    showToast('Не удалось синхронизировать группу на сервер');
   }
 }
 
@@ -2727,7 +2815,7 @@ function refreshSelectedPresence() {
   if (state.selectedTarget.kind === 'dm') {
     const friend = state.friends.find((f) => f.code === state.selectedTarget.id);
     if (!friend) return;
-    statusEl.textContent = friend.online ? 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С–Р С•РЎвЂљР С•Р Р† Р С” Р В·Р Р†Р С•Р Р…Р С”РЎС“' : 'Р РЋРЎвЂљР В°РЎвЂљРЎС“РЎРѓ: Р С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљР ВµР В»РЎРЉ Р Р…Р Вµ Р Р† РЎРѓР ВµРЎвЂљР С‘';
+    statusEl.textContent = friend.online ? 'Статус: готов к звонку' : 'Статус: пользователь не в сети';
   }
   if (state.selectedTarget.memberCodes) {
     renderMembers(state.selectedTarget.memberCodes);
@@ -2754,14 +2842,14 @@ function stopTimer() {
 
 async function initDevices() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-    showToast('Р Р€РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р…Р Вµ Р С—Р С•Р Т‘Р Т‘Р ВµРЎР‚Р В¶Р С‘Р Р†Р В°Р ВµРЎвЂљ Р Р†РЎвЂ№Р В±Р С•РЎР‚ Р В°РЎС“Р Т‘Р С‘Р С•');
+    showToast('Устройство не поддерживает выбор аудио');
     return;
   }
 
   try {
     await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (_) {
-    showToast('Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р С‘ Р Т‘Р С•РЎРѓРЎвЂљРЎС“Р С— Р С” Р СР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р…РЎС“ Р Р† РЎРѓР С‘РЎРѓРЎвЂљР ВµР СР Вµ');
+    showToast('Разреши доступ к микрофону в системе');
   }
 
   await refreshDeviceLists();
@@ -2789,21 +2877,21 @@ async function refreshDeviceLists() {
   inputs.forEach((d, i) => {
     const o = document.createElement('option');
     o.value = d.deviceId;
-    o.textContent = d.label || `Р СљР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р… ${i + 1}`;
+    o.textContent = d.label || `Микрофон ${i + 1}`;
     inputDeviceSelect.appendChild(o);
   });
 
   outputs.forEach((d, i) => {
     const o = document.createElement('option');
     o.value = d.deviceId;
-    o.textContent = d.label || `Р вЂ™РЎвЂ№Р Р†Р С•Р Т‘ ${i + 1}`;
+    o.textContent = d.label || `Вывод ${i + 1}`;
     outputDeviceSelect.appendChild(o);
   });
 
   if (!outputs.length) {
     const o = document.createElement('option');
     o.value = '';
-    o.textContent = 'Р РЋР С‘РЎРѓРЎвЂљР ВµР СР Р…РЎвЂ№Р в„– Р С—Р С• РЎС“Р СР С•Р В»РЎвЂЎР В°Р Р…Р С‘РЎР‹';
+    o.textContent = 'Системный по умолчанию';
     outputDeviceSelect.appendChild(o);
   }
 
@@ -2824,7 +2912,7 @@ async function ensureMicStream(force = false) {
     const audio = state.inputDeviceId ? { deviceId: { exact: state.inputDeviceId } } : true;
     state.micStream = await navigator.mediaDevices.getUserMedia({ audio });
   } catch (_) {
-    showToast('Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…РЎвЂ№Р в„– Р СР С‘Р С”РЎР‚Р С•РЎвЂћР С•Р Р…');
+    showToast('Не удалось открыть выбранный микрофон');
   }
 }
 
@@ -2856,15 +2944,15 @@ async function applyOutputDevice(silent = false) {
   if (!targets.length && sinkProbe && typeof sinkProbe.setSinkId === 'function') targets.push(sinkProbe);
 
   if (!targets.length) {
-    if (!silent) showToast('Р вЂ™РЎвЂ№Р В±Р С•РЎР‚ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р В° Р Р†РЎвЂ№Р Р†Р С•Р Т‘Р В° Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р ВµР Р… Р Р† РЎРЊРЎвЂљР С•Р С Р С•Р С”РЎР‚РЎС“Р В¶Р ВµР Р…Р С‘Р С‘');
+    if (!silent) showToast('Выбор устройства вывода недоступен в этом окружении');
     return;
   }
 
   try {
     await Promise.all(targets.map((t) => t.setSinkId(state.outputDeviceId)));
-    if (!silent) showToast('Р Р€РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р†РЎвЂ№Р Р†Р С•Р Т‘Р В° Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С•');
+    if (!silent) showToast('Устройство вывода обновлено');
   } catch (_) {
-    if (!silent) showToast('Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р С—РЎР‚Р С‘Р СР ВµР Р…Р С‘РЎвЂљРЎРЉ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р†РЎвЂ№Р Р†Р С•Р Т‘Р В°');
+    if (!silent) showToast('Не удалось применить устройство вывода');
   }
 }
 
@@ -2906,21 +2994,21 @@ function applyUpdateProgressUi(progress) {
   updateProgressFill.style.width = `${percent}%`;
 
   if (progress?.error) {
-    updateProgressText.textContent = `Р С›РЎв‚¬Р С‘Р В±Р С”Р В°: ${progress.error}`;
+    updateProgressText.textContent = `Ошибка: ${progress.error}`;
     updateProgressText.classList.add('is-error');
     return;
   }
 
   updateProgressText.classList.remove('is-error');
   if (progress?.finished) {
-    updateProgressText.textContent = `Р вЂњР С•РЎвЂљР С•Р Р†Р С•: ${formatBytes(downloaded)}`;
+    updateProgressText.textContent = `Готово: ${formatBytes(downloaded)}`;
     return;
   }
 
   if (hasTotal) {
-    updateProgressText.textContent = `${percent}% РІР‚Сћ ${formatBytes(downloaded)} / ${formatBytes(total)}`;
+    updateProgressText.textContent = `${percent}% • ${formatBytes(downloaded)} / ${formatBytes(total)}`;
   } else if (progress?.in_progress) {
-    updateProgressText.textContent = `Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С”Р В°... ${formatBytes(downloaded)}`;
+    updateProgressText.textContent = `Загрузка... ${formatBytes(downloaded)}`;
   } else {
     updateProgressText.textContent = '0%';
   }
@@ -2958,8 +3046,8 @@ async function checkForAppUpdate() {
     const info = await tauriInvoke('check_update');
     if (!info?.available) return;
     state.updateInfo = info;
-    updateVersionText.textContent = `Р вЂќР С•РЎРѓРЎвЂљРЎС“Р С—Р Р…Р В° Р Р†Р ВµРЎР‚РЎРѓР С‘РЎРЏ ${info.version} (РЎвЂљР ВµР С”РЎС“РЎвЂ°Р В°РЎРЏ ${info.current_version})`;
-    updateNotesText.textContent = info.notes ? `Р В§РЎвЂљР С• Р Р…Р С•Р Р†Р С•Р С–Р С•: ${info.notes.slice(0, 300)}` : '';
+    updateVersionText.textContent = `Доступна версия ${info.version} (текущая ${info.current_version})`;
+    updateNotesText.textContent = info.notes ? `Что нового: ${info.notes.slice(0, 300)}` : '';
     applyUpdateProgressUi({ downloaded: 0, total: info.size || 0 });
     setUpdateButtonsMode('idle');
     openModal(modalUpdate);
@@ -2989,26 +3077,26 @@ async function onUpdateDownload() {
           stopUpdatePolling();
           state.updateBusy = false;
           setUpdateButtonsMode('idle');
-          showToast('Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ');
+          showToast('Ошибка загрузки обновления');
           return;
         }
         if (progress?.finished) {
           stopUpdatePolling();
           state.updateBusy = false;
           setUpdateButtonsMode('ready');
-          showToast('Р С›Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘Р Вµ Р В·Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р…Р С•');
+          showToast('Обновление загружено');
         }
       } catch (_) {
         stopUpdatePolling();
         state.updateBusy = false;
         setUpdateButtonsMode('idle');
-        showToast('Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С—РЎР‚Р С•Р Р†Р ВµРЎР‚Р С”Р С‘ Р С—РЎР‚Р С•Р С–РЎР‚Р ВµРЎРѓРЎРѓР В° Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ');
+        showToast('Ошибка проверки прогресса обновления');
       }
     }, 400);
   } catch (_) {
     state.updateBusy = false;
     setUpdateButtonsMode('idle');
-    showToast('Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р Р…Р В°РЎвЂЎР В°РЎвЂљРЎРЉ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”РЎС“ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ');
+    showToast('Не удалось начать загрузку обновления');
   }
 }
 
@@ -3018,7 +3106,7 @@ async function onUpdateInstall() {
     await tauriInvoke('install_downloaded_update');
   } catch (_) {
     updateInstallBtn.disabled = false;
-    showToast('Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р В·Р В°Р С—РЎС“РЎРѓРЎвЂљР С‘РЎвЂљРЎРЉ РЎС“РЎРѓРЎвЂљР В°Р Р…Р С•Р Р†РЎвЂ°Р С‘Р С” Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ');
+    showToast('Не удалось запустить установщик обновления');
   }
 }
 
@@ -3252,14 +3340,18 @@ function normalizePart(s) {
 function normalizeChatList(list) {
   if (!Array.isArray(list)) return [];
   return list
-    .filter((m) => m && typeof m.text === 'string' && typeof m.author_code === 'string')
-    .map((m) => ({
-      id: String(m.id || id()),
-      authorCode: String(m.author_code).toUpperCase(),
-      authorNick: String(m.author_nick || m.author_code || 'User'),
-      text: String(m.text),
-      ts: Number(m.ts || Date.now()),
-    }))
+    .filter((m) => m && typeof m.text === 'string' && typeof (m.author_code || m.authorCode) === 'string')
+    .map((m) => {
+      const authorCode = String(m.author_code || m.authorCode || '').toUpperCase();
+      return {
+        id: String(m.id || id()),
+        authorCode,
+        authorNick: String(m.author_nick || m.authorNick || authorCode || 'User'),
+        text: String(m.text),
+        ts: Number(m.ts || m.timestamp || Date.now()),
+      };
+    })
+    .filter((m) => m.authorCode)
     .slice(-300);
 }
 
@@ -3277,10 +3369,14 @@ function safeJson(key) {
   }
 }
 
+function isDemoFriendEntry(code, nick) {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  const normalizedNick = String(nick || '').trim().toLowerCase();
+  return DEMO_FRIEND_CODES.has(normalizedCode) || DEMO_FRIEND_NICKS.has(normalizedNick);
+}
+
 function sanitizeFriends(input) {
   if (!Array.isArray(input)) return [];
-  const demoCodes = new Set(['NX-AL3X10', 'NX-MAX009']);
-  const demoNicks = new Set(['alex dev', 'maxo']);
 
   return input
     .filter((f) => f && typeof f.nick === 'string' && typeof f.code === 'string')
@@ -3291,7 +3387,7 @@ function sanitizeFriends(input) {
       endpoint: '',
     }))
     .filter((f) => /^NX-[A-Z0-9]{6}$/.test(f.code))
-    .filter((f) => !demoCodes.has(f.code) && !demoNicks.has(f.nick.toLowerCase()));
+    .filter((f) => !isDemoFriendEntry(f.code, f.nick));
 }
 
 function normalizeServers(servers, fallbackCode, friends) {
@@ -3317,7 +3413,7 @@ function normalizeServers(servers, fallbackCode, friends) {
         ? s.textChannels
         : Array.isArray(s.text_channels) && s.text_channels.length
           ? s.text_channels
-          : ['Р С•Р В±РЎвЂ°Р С‘Р в„–'],
+          : ['общий'],
       voiceChannels: Array.isArray(s.voiceChannels) && s.voiceChannels.length
         ? s.voiceChannels
         : Array.isArray(s.voice_channels) && s.voice_channels.length
@@ -3378,5 +3474,3 @@ function escapeHtml(text) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 }
-
-

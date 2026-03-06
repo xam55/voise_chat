@@ -132,6 +132,20 @@
     </div>
   </div>
 
+  <div id="modalRenameFriend" class="modal hidden">
+    <div class="modal-card rename-card">
+      <h3>Изменить имя</h3>
+      <p class="modal-note">Как контакт будет отображаться у тебя в списке.</p>
+      <label>Новое имя
+        <input id="renameFriendInput" type="text" maxlength="40" placeholder="Введите новое имя" />
+      </label>
+      <div class="modal-actions">
+        <button id="renameFriendSaveBtn" class="primary">Сохранить</button>
+        <button data-close="modalRenameFriend">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalCreateServer" class="modal hidden">
     <div class="modal-card">
       <h3>Создать группу (сервер)</h3>
