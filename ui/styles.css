@@ -756,6 +756,11 @@ button.mini { padding: 7px 10px; font-size: 13px; }
   width: 100%;
   text-align: left;
 }
+.friend-menu-action.danger {
+  color: #f38b90;
+  border-color: rgba(218, 55, 60, 0.45);
+  background: rgba(218, 55, 60, 0.12);
+}
 .friend-menu input[type="range"] {
   width: 100%;
 }

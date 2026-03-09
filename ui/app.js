@@ -35,6 +35,8 @@ const serverMenu = document.getElementById('serverMenu');
 const serverMenuDeleteBtn = document.getElementById('serverMenuDeleteBtn');
 const friendMenu = document.getElementById('friendMenu');
 const friendRenameBtn = document.getElementById('friendRenameBtn');
+const friendKickBtn = document.getElementById('friendKickBtn');
+const friendDeleteBtn = document.getElementById('friendDeleteBtn');
 const friendVolumeRange = document.getElementById('friendVolumeRange');
 const friendVolumeValue = document.getElementById('friendVolumeValue');
 
@@ -54,6 +56,7 @@ const modalIncomingCall = document.getElementById('modalIncomingCall');
 const modalDeleteServer = document.getElementById('modalDeleteServer');
 const modalUpdate = document.getElementById('modalUpdate');
 const modalRenameFriend = document.getElementById('modalRenameFriend');
+const modalDeleteFriend = document.getElementById('modalDeleteFriend');
 
 const friendNickInput = document.getElementById('friendNickInput');
 const friendCodeInput = document.getElementById('friendCodeInput');
@@ -76,6 +79,9 @@ const declineCallBtn = document.getElementById('declineCallBtn');
 const deleteServerText = document.getElementById('deleteServerText');
 const deleteServerYesBtn = document.getElementById('deleteServerYesBtn');
 const deleteServerNoBtn = document.getElementById('deleteServerNoBtn');
+const deleteFriendText = document.getElementById('deleteFriendText');
+const deleteFriendYesBtn = document.getElementById('deleteFriendYesBtn');
+const deleteFriendNoBtn = document.getElementById('deleteFriendNoBtn');
 const updateVersionText = document.getElementById('updateVersionText');
 const updateNotesText = document.getElementById('updateNotesText');
 const updateProgressFill = document.getElementById('updateProgressFill');
@@ -115,7 +121,7 @@ const NET_TUNE = {
   fetchTimeoutMs: 5000,
   fetchRetry: 1,
   presencePushMs: 12000,
-  onlinePollMs: 7000,
+  onlinePollMs: 2000,
   friendsSyncMs: 5000,
   groupSyncMs: 3000,
 };
@@ -124,6 +130,7 @@ const DEFAULT_SIGNAL_SERVER = 'http://5.129.239.69:8080';
 const DEFAULT_TURN_SERVER = 'turn:5.129.239.69:3478?transport=udp';
 const DEFAULT_TURN_USER = 'nizam';
 const DEFAULT_TURN_PASS = 'nizam#26!';
+const REJECTED_SESSION_TTL_MS = 90_000;
 const DEMO_FRIEND_CODES = new Set(['NX-AL3X10', 'NX-MAX009', 'NX-AAAA11']);
 const DEMO_FRIEND_NICKS = new Set(['alex dev', 'maxo', 'alpha']);
 
@@ -143,6 +150,7 @@ const bootstrapFriends = sanitizeFriends(safeJson('nx_friends') || []);
 const bootstrapTextMessages = safeJson('nx_text_messages') || {};
 const bootstrapChatSeen = safeJson('nx_chat_seen') || {};
 const bootstrapFriendVolumes = safeJson('nx_friend_volumes') || {};
+const bootstrapDeletedFriends = sanitizeDeletedFriendCodes(safeJson('nx_deleted_friends') || []);
 const bootstrapServers = safeJson('nx_servers') || [];
 
 const state = {
@@ -180,8 +188,12 @@ const state = {
   textMessages: bootstrapTextMessages,
   chatSeenTs: bootstrapChatSeen,
   friendVolumes: bootstrapFriendVolumes,
+  deletedFriendCodes: bootstrapDeletedFriends,
   friendMenuCode: '',
   friendMenuCanRename: false,
+  friendMenuCanKick: false,
+  friendMenuKickServerId: '',
+  friendMenuCanDelete: false,
   renameFriendCode: '',
   serverMenuServerId: '',
   chatPollRef: null,
@@ -195,14 +207,18 @@ const state = {
   groupDialLock: false,
   groupPeers: {},
   groupPending: {},
+  groupVoicePresenceCodes: [],
+  groupVoicePresenceReady: false,
   pingTimerRef: null,
   deleteServerConfirmResolve: null,
+  deleteFriendConfirmResolve: null,
   updateInfo: null,
   updatePollRef: null,
   updateBusy: false,
   splashHidden: false,
   globalPttUnlisten: null,
   memberPresence: {},
+  rejectedIncomingSessions: {},
   chatSocket: null,
   chatSocketReady: false,
   chatSocketUrl: '',
@@ -215,6 +231,7 @@ persist('nx_friends', state.friends);
 persist('nx_text_messages', state.textMessages);
 persist('nx_chat_seen', state.chatSeenTs);
 persist('nx_friend_volumes', state.friendVolumes);
+persist('nx_deleted_friends', state.deletedFriendCodes);
 
 localStorage.setItem('nx_signal_server', state.me.server);
 localStorage.setItem('nx_turn_server', DEFAULT_TURN_SERVER);
@@ -297,6 +314,8 @@ function bindEvents() {
   declineCallBtn.onclick = () => rejectIncomingCall(true);
   deleteServerYesBtn.onclick = () => closeDeleteServerConfirm(true);
   deleteServerNoBtn.onclick = () => closeDeleteServerConfirm(false);
+  deleteFriendYesBtn.onclick = () => closeDeleteFriendConfirm(true);
+  deleteFriendNoBtn.onclick = () => closeDeleteFriendConfirm(false);
   updateDownloadBtn.onclick = onUpdateDownload;
   updateInstallBtn.onclick = onUpdateInstall;
   updateLaterBtn.onclick = () => modalUpdate.classList.add('hidden');
@@ -326,6 +345,16 @@ function bindEvents() {
   friendVolumeRange.oninput = onFriendVolumeInput;
   if (friendRenameBtn) {
     friendRenameBtn.onclick = onRenameFriendFromMenu;
+  }
+  if (friendKickBtn) {
+    friendKickBtn.onclick = () => {
+      void onKickMemberFromMenu();
+    };
+  }
+  if (friendDeleteBtn) {
+    friendDeleteBtn.onclick = () => {
+      void onDeleteFriendFromMenu();
+    };
   }
 
   searchInput.oninput = () => {
@@ -381,15 +410,23 @@ function bindEvents() {
         closeRenameFriendModal();
         return;
       }
+      if (modalId === 'modalDeleteFriend') {
+        closeDeleteFriendConfirm(false);
+        return;
+      }
       document.getElementById(modalId)?.classList.add('hidden');
     };
   });
 
-  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer, modalUpdate, modalRenameFriend].forEach((m) => {
+  [modalAddFriend, modalCreateServer, modalCreateChannel, modalSettings, modalAddMember, modalIncomingCall, modalDeleteServer, modalDeleteFriend, modalUpdate, modalRenameFriend].forEach((m) => {
     m.onclick = (e) => {
       if (e.target !== m) return;
       if (m === modalDeleteServer) {
         closeDeleteServerConfirm(false);
+        return;
+      }
+      if (m === modalDeleteFriend) {
+        closeDeleteFriendConfirm(false);
         return;
       }
       if (m === modalIncomingCall) {
@@ -610,7 +647,14 @@ async function onServerContextDelete(serverId) {
   const ok = await confirmDeleteServer(server.name);
   if (!ok) return;
 
-  if (state.callConnected) await disconnectCall();
+  const deletingActiveGroupCall = (
+    state.callConnected
+    && state.groupVoice
+    && state.groupVoice.serverId === serverId
+  );
+  if (deletingActiveGroupCall) {
+    await disconnectCall();
+  }
   try {
     await signalPost('/v1/groups/delete', {
       group_id: server.id,
@@ -710,20 +754,32 @@ function renderDMs() {
     });
 }
 
-function openFriendMenu(friend, x, y) {
+function openFriendMenu(friend, x, y, options = null) {
   closeServerMenu();
+  closeDeleteFriendConfirm(false);
+  const menuOptions = options || {};
   state.friendMenuCode = friend.code;
   state.friendMenuCanRename = !!friend?.canRename;
+  state.friendMenuCanKick = !!menuOptions.canKick;
+  state.friendMenuKickServerId = String(menuOptions.serverId || '');
+  state.friendMenuCanDelete = state.friends.some((f) => f.code === friend.code);
   const value = getFriendVolumePercent(friend.code);
   friendVolumeRange.value = String(value);
   friendVolumeValue.textContent = `${value}%`;
   if (friendRenameBtn) {
     friendRenameBtn.classList.toggle('hidden', !state.friendMenuCanRename);
   }
+  if (friendKickBtn) {
+    friendKickBtn.classList.toggle('hidden', !state.friendMenuCanKick);
+  }
+  if (friendDeleteBtn) {
+    friendDeleteBtn.classList.toggle('hidden', !state.friendMenuCanDelete);
+  }
   friendMenu.classList.remove('hidden');
 
-  const menuW = 220;
-  const menuH = state.friendMenuCanRename ? 140 : 96;
+  const rect = friendMenu.getBoundingClientRect();
+  const menuW = Math.ceil(rect.width) || 220;
+  const menuH = Math.ceil(rect.height) || 160;
   const left = Math.min(x, window.innerWidth - menuW - 8);
   const top = Math.min(y, window.innerHeight - menuH - 8);
   friendMenu.style.left = `${Math.max(8, left)}px`;
@@ -735,6 +791,9 @@ function closeFriendMenu() {
   friendMenu.classList.add('hidden');
   state.friendMenuCode = '';
   state.friendMenuCanRename = false;
+  state.friendMenuCanKick = false;
+  state.friendMenuKickServerId = '';
+  state.friendMenuCanDelete = false;
 }
 
 function onFriendVolumeInput() {
@@ -761,10 +820,130 @@ function onRenameFriendFromMenu() {
   }, 0);
 }
 
+async function onDeleteFriendFromMenu() {
+  if (!state.friendMenuCode || !state.friendMenuCanDelete) return;
+  const friend = state.friends.find((f) => f.code === state.friendMenuCode);
+  if (!friend) return;
+  closeFriendMenu();
+  const ok = await confirmDeleteFriend(friend.nick, friend.code);
+  if (!ok) return;
+  await removeFriendByCode(friend.code, friend.nick);
+}
+
+async function onKickMemberFromMenu() {
+  if (!state.friendMenuCode || !state.friendMenuCanKick || !state.friendMenuKickServerId) return;
+  const memberCode = state.friendMenuCode;
+  const serverId = state.friendMenuKickServerId;
+  closeFriendMenu();
+  await kickMemberFromServer(serverId, memberCode);
+}
+
+async function kickMemberFromServer(serverId, memberCode) {
+  const server = state.servers.find((s) => s.id === serverId);
+  const code = String(memberCode || '').trim().toUpperCase();
+  if (!server) return;
+  if (!/^NX-[A-Z0-9]{6}$/.test(code) || code === state.me.code) return;
+
+  if (server.creatorCode !== state.me.code) {
+    showToast('Удалять участников может только создатель группы');
+    return;
+  }
+  if (!server.memberCodes.includes(code)) {
+    showToast('Участник уже удален из группы');
+    return;
+  }
+
+  server.memberCodes = server.memberCodes.filter((c) => c !== code);
+  persist('nx_servers', state.servers);
+  await syncServerToBackend(server);
+  await syncGroupsFromServer(true);
+
+  if (state.groupPeers[code]) {
+    await teardownGroupPeer(code, true);
+  }
+
+  if (state.selectedScope === 'server' && state.selectedServerId === server.id) {
+    if (state.selectedTarget && (state.selectedTarget.kind === 'voice' || state.selectedTarget.kind === 'text')) {
+      state.selectedTarget.memberCodes = [...server.memberCodes];
+      renderMembers(state.selectedTarget.memberCodes);
+    }
+    renderServerChannels();
+  }
+
+  showToast(`Участник ${codeToNick(code)} удален из группы`);
+}
+
 function closeRenameFriendModal() {
   state.renameFriendCode = '';
   if (renameFriendInput) renameFriendInput.value = '';
   if (modalRenameFriend) modalRenameFriend.classList.add('hidden');
+}
+
+function confirmDeleteFriend(friendNick, friendCode) {
+  if (!modalDeleteFriend || !deleteFriendText) return Promise.resolve(false);
+  if (state.deleteFriendConfirmResolve) {
+    closeDeleteFriendConfirm(false);
+  }
+  deleteFriendText.textContent = `Удалить друга "${friendNick}" (${friendCode})?`;
+  modalDeleteFriend.classList.remove('hidden');
+  return new Promise((resolve) => {
+    state.deleteFriendConfirmResolve = resolve;
+  });
+}
+
+function closeDeleteFriendConfirm(result) {
+  if (modalDeleteFriend) modalDeleteFriend.classList.add('hidden');
+  const resolve = state.deleteFriendConfirmResolve;
+  state.deleteFriendConfirmResolve = null;
+  if (resolve) resolve(!!result);
+}
+
+async function removeFriendByCode(friendCode, friendNick = '') {
+  const code = String(friendCode || '').trim().toUpperCase();
+  if (!/^NX-[A-Z0-9]{6}$/.test(code)) return;
+
+  const nextFriends = state.friends.filter((f) => f.code !== code);
+  if (nextFriends.length === state.friends.length) return;
+  state.friends = nextFriends;
+
+  rememberDeletedFriendCode(code);
+  delete state.friendVolumes[code];
+
+  const dmKey = getTextChannelKey({ kind: 'dm', id: code });
+  delete state.textMessages[dmKey];
+  delete state.chatSeenTs[dmKey];
+  delete state.memberPresence[code];
+
+  if (state.selectedTarget?.kind === 'dm' && state.selectedTarget.id === code) {
+    if (state.callConnected) {
+      await disconnectCall(true);
+    } else {
+      stopTimer();
+      setCallConnected(false);
+    }
+    state.selectedTarget = null;
+    state.activeChatChannelId = '';
+    renderHome();
+  } else {
+    if (state.selectedScope === 'home') renderDMs();
+    else renderServerChannels();
+    refreshSelectedPresence();
+  }
+
+  persist('nx_friends', state.friends);
+  persist('nx_friend_volumes', state.friendVolumes);
+  persist('nx_text_messages', state.textMessages);
+  persist('nx_chat_seen', state.chatSeenTs);
+
+  try {
+    await signalPost('/v1/friends/remove', {
+      owner_code: state.me.code,
+      friend_code: code,
+    });
+  } catch (_) {}
+
+  const label = String(friendNick || code).trim();
+  showToast(`Друг ${label} удален`);
 }
 
 function onSaveRenameFriend() {
@@ -848,10 +1027,10 @@ function renderServerChannels() {
 
   scopeTitle.textContent = server.name;
   channelSection.classList.remove('hidden');
-  createChannelBtn.classList.remove('hidden');
   dmList.innerHTML = '';
 
   const isCreator = server.creatorCode === state.me.code;
+  createChannelBtn.classList.toggle('hidden', !isCreator);
   const canManageMembers = isCreator && !!state.selectedTarget;
   addMemberBtn.classList.toggle('hidden', !canManageMembers);
 
@@ -922,9 +1101,10 @@ function renderServerChannels() {
           const code = node.dataset.code || '';
           const target = volumeTargetByCode(code);
           if (!target) return;
+          const canKick = server.creatorCode === state.me.code && server.memberCodes.includes(code);
           event.preventDefault();
           event.stopPropagation();
-          openFriendMenu(target, event.clientX, event.clientY);
+          openFriendMenu(target, event.clientX, event.clientY, { canKick, serverId: server.id });
         };
       });
       voiceChannelList.appendChild(li);
@@ -1103,6 +1283,7 @@ function ensureFriendExists(code, suggestedNick = '') {
   const normalized = String(code || '').trim().toUpperCase();
   if (!/^NX-[A-Z0-9]{6}$/.test(normalized) || normalized === state.me.code) return null;
   if (isDemoFriendEntry(normalized, suggestedNick)) return null;
+  if (isDeletedFriendCode(normalized)) return null;
   let friend = state.friends.find((f) => f.code === normalized);
   if (friend) {
     if ((!friend.nick || /^User\s+NX-/i.test(friend.nick)) && suggestedNick) {
@@ -1171,9 +1352,10 @@ function renderTextChannel() {
   list.forEach((msg) => {
     const row = document.createElement('div');
     row.className = `chat-msg ${msg.authorCode === state.me.code ? 'me' : ''}`;
+    const displayAuthorNick = resolveMessageAuthorNick(msg);
     row.innerHTML = `
       <div class="chat-msg-head">
-        <strong>${escapeHtml(msg.authorNick)}</strong>
+        <strong>${escapeHtml(displayAuthorNick)}</strong>
         <span>${formatTime(msg.ts)}</span>
       </div>
       <div class="chat-msg-body">${escapeHtml(msg.text)}</div>
@@ -1475,8 +1657,13 @@ function renderMembers(memberCodes) {
     li.oncontextmenu = (event) => {
       const target = volumeTargetByCode(code);
       if (!target) return;
+      const server = state.servers.find((s) => s.id === state.selectedServerId);
+      const canKick = !!server && server.creatorCode === state.me.code && server.memberCodes.includes(code);
       event.preventDefault();
-      openFriendMenu(target, event.clientX, event.clientY);
+      openFriendMenu(target, event.clientX, event.clientY, {
+        canKick,
+        serverId: server?.id || '',
+      });
     };
     membersList.appendChild(li);
   });
@@ -1502,6 +1689,7 @@ async function onSaveFriend() {
     return;
   }
 
+  forgetDeletedFriendCode(code);
   state.friends.push({ nick, code, online: false, endpoint: '' });
   persist('nx_friends', state.friends);
   try {
@@ -1566,6 +1754,11 @@ async function onSaveChannel() {
   }
   if (!name) {
     showToast('Укажи название канала');
+    return;
+  }
+
+  if (server.creatorCode !== state.me.code) {
+    showToast('Создавать каналы может только создатель группы');
     return;
   }
 
@@ -1712,6 +1905,8 @@ async function connectCall() {
     ++state.callToken;
     state.callTargetKey = `voice:${state.selectedServerId}:${state.selectedTarget.id}`;
     state.groupVoice = { serverId: state.selectedServerId, channel: state.selectedTarget.id };
+    state.groupVoicePresenceCodes = [];
+    state.groupVoicePresenceReady = false;
     state.callConnected = true;
     statusEl.textContent = `Статус: в голосовом канале ${state.selectedTarget.id}`;
     startPingLoop();
@@ -1767,6 +1962,7 @@ async function connectCall() {
     if (isActiveToken(token)) {
       stopRingingLoop();
       await teardownCall(false);
+      await sendSelfPresence();
       statusEl.textContent = 'Статус: ошибка подключения';
       showToast(`Ошибка созвона: ${err.message || err}`);
     }
@@ -1784,6 +1980,8 @@ async function disconnectCall() {
   }
   state.callTargetKey = '';
   state.groupVoice = null;
+  state.groupVoicePresenceCodes = [];
+  state.groupVoicePresenceReady = false;
   statusEl.textContent = 'Статус: отключено';
   showToast('Отключено');
   playCue('leave');
@@ -1825,6 +2023,8 @@ async function teardownCall(notifyRemote = false) {
   state.call = null;
   state.callTargetKey = '';
   state.groupVoice = null;
+  state.groupVoicePresenceCodes = [];
+  state.groupVoicePresenceReady = false;
 
   if (remoteAudio) {
     remoteAudio.pause();
@@ -2214,6 +2414,7 @@ function startIncomingWatcher() {
 }
 
 async function checkIncomingCalls() {
+  cleanupRejectedIncomingSessions();
   if (state.incomingCall) return;
   if (state.call && !state.groupVoice) return;
   const incomingHints = {};
@@ -2264,6 +2465,7 @@ async function checkIncomingCalls() {
         online: endpoint.kind !== 'none' && endpoint.kind !== 'idle',
       };
       if (endpoint.kind === 'ring' && endpoint.to === state.me.code) {
+        if (isRejectedIncomingSession(endpoint.sessionId)) continue;
         let hasValidOffer = false;
         let incomingMode = 'dm';
         let groupMeta = null;
@@ -2312,6 +2514,9 @@ async function checkIncomingCalls() {
 async function acceptIncomingCall() {
   if (!state.incomingCall) return;
   const incoming = state.incomingCall;
+  if (incoming?.sessionId) {
+    delete state.rejectedIncomingSessions[incoming.sessionId];
+  }
   if (incoming.mode === 'group') {
     state.incomingCall = null;
     modalIncomingCall.classList.add('hidden');
@@ -2355,6 +2560,7 @@ async function acceptIncomingCall() {
 async function rejectIncomingCall(notify = false) {
   if (!state.incomingCall) return;
   const incoming = state.incomingCall;
+  rememberRejectedIncomingSession(incoming.sessionId);
   stopRingingLoop();
   modalIncomingCall.classList.add('hidden');
   state.incomingCall = null;
@@ -2371,6 +2577,33 @@ async function rejectIncomingCall(notify = false) {
       }, 1500);
     } catch (_) {}
   }
+}
+
+function rememberRejectedIncomingSession(sessionId) {
+  const normalized = String(sessionId || '').trim();
+  if (!normalized) return;
+  state.rejectedIncomingSessions[normalized] = Date.now() + REJECTED_SESSION_TTL_MS;
+}
+
+function isRejectedIncomingSession(sessionId) {
+  const normalized = String(sessionId || '').trim();
+  if (!normalized) return false;
+  const expiresAt = Number(state.rejectedIncomingSessions[normalized] || 0);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return false;
+  if (Date.now() > expiresAt) {
+    delete state.rejectedIncomingSessions[normalized];
+    return false;
+  }
+  return true;
+}
+
+function cleanupRejectedIncomingSessions() {
+  const now = Date.now();
+  Object.entries(state.rejectedIncomingSessions).forEach(([sessionId, expiresAt]) => {
+    if (!Number.isFinite(Number(expiresAt)) || Number(expiresAt) <= now) {
+      delete state.rejectedIncomingSessions[sessionId];
+    }
+  });
 }
 
 function startRingingLoop(mode) {
@@ -2693,6 +2926,7 @@ async function syncFriendsFromServer(silent = false) {
     remote.forEach((item) => {
       const code = String(item?.code || '').trim().toUpperCase();
       if (!/^NX-[A-Z0-9]{6}$/.test(code) || code === state.me.code) return;
+      if (isDeletedFriendCode(code)) return;
       const nickFromServer = String(item?.nick || '').trim() || code;
       if (isDemoFriendEntry(code, nickFromServer)) return;
       const endpoint = String(item?.endpoint || '').trim();
@@ -2775,6 +3009,7 @@ async function syncGroupsFromServer(silent = false) {
 async function syncServerToBackend(server) {
   try {
     await signalPost('/v1/groups/upsert', {
+      requester_code: state.me.code,
       group: {
         id: server.id,
         name: server.name,
@@ -2859,11 +3094,59 @@ async function refreshOnlineStatuses() {
     changed = true;
   }
 
+  syncGroupJoinLeaveCuesFromPresence();
   if (!changed) return;
   persist('nx_friends', state.friends);
   if (state.selectedScope === 'home') renderDMs();
   if (state.selectedScope === 'server') renderServerChannels();
   refreshSelectedPresence();
+}
+
+function syncGroupJoinLeaveCuesFromPresence() {
+  if (!state.callConnected || !state.groupVoice) {
+    state.groupVoicePresenceCodes = [];
+    state.groupVoicePresenceReady = false;
+    return;
+  }
+
+  const currentCodes = [];
+  const targetServer = String(state.groupVoice.serverId || '');
+  const targetChannel = String(state.groupVoice.channel || '');
+  Object.entries(state.memberPresence || {}).forEach(([code, presence]) => {
+    const normalized = String(code || '').trim().toUpperCase();
+    if (!normalized || normalized === state.me.code) return;
+    if (!presence?.online) return;
+    const parsed = parseEndpoint(String(presence.endpoint || '').trim());
+    if (parsed.kind !== 'group') return;
+    if (String(parsed.serverId || '') !== targetServer) return;
+    if (String(parsed.channel || '') !== targetChannel) return;
+    currentCodes.push(normalized);
+  });
+
+  currentCodes.sort((a, b) => a.localeCompare(b));
+  const prevCodes = Array.isArray(state.groupVoicePresenceCodes) ? state.groupVoicePresenceCodes : [];
+  if (!state.groupVoicePresenceReady) {
+    state.groupVoicePresenceCodes = currentCodes;
+    state.groupVoicePresenceReady = true;
+    return;
+  }
+
+  const prevSet = new Set(prevCodes);
+  const nextSet = new Set(currentCodes);
+
+  currentCodes.forEach((code) => {
+    if (!prevSet.has(code)) {
+      playCue('join');
+    }
+  });
+
+  prevCodes.forEach((code) => {
+    if (!nextSet.has(code)) {
+      playCue('leave');
+    }
+  });
+
+  state.groupVoicePresenceCodes = currentCodes;
 }
 
 function refreshSelectedPresence() {
@@ -3399,16 +3682,29 @@ function normalizeChatList(list) {
     .filter((m) => m && typeof m.text === 'string' && typeof (m.author_code || m.authorCode) === 'string')
     .map((m) => {
       const authorCode = String(m.author_code || m.authorCode || '').toUpperCase();
+      const rawNick = String(m.author_nick || m.authorNick || '').trim();
+      const looksLikeCode = /^NX-[A-Z0-9]{6}$/i.test(rawNick);
+      const fallbackNick = authorCode ? codeToNick(authorCode) : 'User';
+      const resolvedNick = rawNick && !looksLikeCode ? rawNick : fallbackNick;
       return {
         id: String(m.id || id()),
         authorCode,
-        authorNick: String(m.author_nick || m.authorNick || authorCode || 'User'),
+        authorNick: resolvedNick || authorCode || 'User',
         text: String(m.text),
         ts: Number(m.ts || m.timestamp || Date.now()),
       };
     })
     .filter((m) => m.authorCode)
     .slice(-300);
+}
+
+function resolveMessageAuthorNick(msg) {
+  const authorCode = String(msg?.authorCode || '').toUpperCase();
+  if (authorCode === state.me.code) return state.me.nick || msg?.authorNick || authorCode || 'You';
+  const rawNick = String(msg?.authorNick || '').trim();
+  if (rawNick && !/^NX-[A-Z0-9]{6}$/i.test(rawNick)) return rawNick;
+  if (authorCode) return codeToNick(authorCode);
+  return rawNick || 'User';
 }
 
 function persist(key, value) {
@@ -3444,6 +3740,36 @@ function sanitizeFriends(input) {
     }))
     .filter((f) => /^NX-[A-Z0-9]{6}$/.test(f.code))
     .filter((f) => !isDemoFriendEntry(f.code, f.nick));
+}
+
+function sanitizeDeletedFriendCodes(input) {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(
+    input
+      .map((code) => String(code || '').trim().toUpperCase())
+      .filter((code) => /^NX-[A-Z0-9]{6}$/.test(code)),
+  )];
+}
+
+function isDeletedFriendCode(code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  return state.deletedFriendCodes.includes(normalized);
+}
+
+function rememberDeletedFriendCode(code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (!/^NX-[A-Z0-9]{6}$/.test(normalized)) return;
+  if (state.deletedFriendCodes.includes(normalized)) return;
+  state.deletedFriendCodes.push(normalized);
+  persist('nx_deleted_friends', state.deletedFriendCodes);
+}
+
+function forgetDeletedFriendCode(code) {
+  const normalized = String(code || '').trim().toUpperCase();
+  const next = state.deletedFriendCodes.filter((c) => c !== normalized);
+  if (next.length === state.deletedFriendCodes.length) return;
+  state.deletedFriendCodes = next;
+  persist('nx_deleted_friends', state.deletedFriendCodes);
 }
 
 function normalizeServers(servers, fallbackCode, friends) {

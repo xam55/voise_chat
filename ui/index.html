@@ -253,6 +253,17 @@
     </div>
   </div>
 
+  <div id="modalDeleteFriend" class="modal hidden">
+    <div class="modal-card rename-card">
+      <h3>Удалить друга?</h3>
+      <p id="deleteFriendText" class="modal-note">Это действие удалит контакт из списка друзей.</p>
+      <div class="modal-actions">
+        <button id="deleteFriendNoBtn">Отмена</button>
+        <button id="deleteFriendYesBtn" class="danger">Да, удалить</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalUpdate" class="modal hidden">
     <div class="modal-card">
       <h3>Update available</h3>
@@ -280,6 +291,8 @@
   <div id="friendMenu" class="friend-menu hidden">
     <div class="friend-menu-title">Громкость собеседника</div>
     <button id="friendRenameBtn" class="friend-menu-action" type="button">Изменить имя</button>
+    <button id="friendKickBtn" class="friend-menu-action danger hidden" type="button">Удалить участника</button>
+    <button id="friendDeleteBtn" class="friend-menu-action danger hidden" type="button">Удалить друга</button>
     <input id="friendVolumeRange" type="range" min="0" max="100" step="1" />
     <div id="friendVolumeValue" class="friend-menu-value">100%</div>
   </div>
@@ -288,4 +301,3 @@
   <script src="./app.js"></script>
 </body>
 </html>
-
